@@ -6,12 +6,10 @@ charges.
 
 > **Status: v0.1.0, the first public release.**
 >
-> **This server is for personal Vidofy accounts.** It takes one credential, `VIDOFY_TOKEN`,
-> and spends your own coins. Setting `VIDOFY_API_KEY` instead is refused at startup with a
-> message pointing at the alternative — it is not a feature waiting on a later release.
-> If you are integrating on behalf of a company, call the Partners API at
-> [`/api/v1`](https://vidofy.ai/docs/api-overview) directly: it is built and documented for
-> that, bills the API credit wallet, and does more than this server would.
+> **This server is for personal Vidofy accounts.** It takes one credential,
+> `VIDOFY_TOKEN`, and spends **your own coins** — the same balance the website
+> spends, at the same prices. There is no other billing mode: `VIDOFY_API_KEY` is
+> refused at startup, and that is a decision, not a feature waiting on a release.
 
 ## Tools
 
@@ -76,10 +74,10 @@ Once it is published, that becomes:
 | `VIDOFY_TOKEN` | **yes** | Personal MCP token (`vmt_…`). Spends **your own Vidofy coins**, exactly as the studio does. |
 | `VIDOFY_API_BASE` | no | Override the origin. Development only — e.g. `https://vidofy.local`. Defaults to `https://vidofy.ai`. |
 
-`VIDOFY_API_KEY` is recognised only in order to be **refused**: a `vky_…` key spends the B2B
-credit wallet, which this server does not serve. Setting it stops startup with a message naming
-the token to use instead — and setting *both* is refused too, since the two bill different
-balances and no precedence rule is worth having to remember.
+`VIDOFY_API_KEY` is recognised only in order to be **refused**: a `vky_…` key bills a
+different balance, which this server does not serve. Setting it stops startup with a message
+naming the token to use instead — and setting *both* is refused too, since the two bill
+different balances and no precedence rule is worth having to remember.
 
 ## Development
 
