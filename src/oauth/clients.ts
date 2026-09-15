@@ -452,8 +452,9 @@ async function getWithPinnedLookup(
             {
                 method: 'GET',
                 headers: { accept: 'application/json' },
-                // Local development talks to vidofy.local, which is exactly what
-                // the hook exists to refuse — so it is bypassed there, the same
+                // Local development talks to a private-range host, which is
+                // exactly what the hook exists to refuse — so it is bypassed
+                // there, the same
                 // way the address rules above are.
                 ...(allowPrivate ? {} : { lookup: safeLookup }),
             },

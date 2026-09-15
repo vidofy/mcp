@@ -1,8 +1,18 @@
 # @vidofy/mcp
 
-Generate images, video, audio and speech with [Vidofy](https://vidofy.ai) from Claude Desktop,
-Cursor, or any MCP client — **billed to your own Vidofy account**, at the same prices the website
-charges.
+[![npm](https://img.shields.io/npm/v/@vidofy/mcp?color=cb3837&logo=npm)](https://www.npmjs.com/package/@vidofy/mcp)
+[![node](https://img.shields.io/node/v/@vidofy/mcp)](https://nodejs.org)
+[![licence](https://img.shields.io/npm/l/@vidofy/mcp?color=blue)](./LICENSE)
+
+**MCP server for [Vidofy](https://vidofy.ai)** — generate images, video, audio and speech from
+Claude Desktop, Cursor, or any MCP client, **billed to your own Vidofy account**, at the same
+prices the website charges.
+
+Over 570 models, including **Veo 3.1**, **Kling 3.0**, **Flux 2**, **Seedance 2.5**, **Wan 2.7**,
+**Hailuo 2.3**, **Runway**, **Luma Ray 2**, **Qwen Image 3.0**, **Vidu Q3** and **LTX 2** —
+text-to-video, image-to-video, text-to-image, image editing, video and photo effects, lipsync,
+text-to-speech and voice cloning. The agent browses the catalogue, prices a generation before
+running it, and follows one to its result.
 
 > **Status: v0.1.0, the first public release.**
 >
@@ -72,7 +82,7 @@ Once it is published, that becomes:
 | Variable | Required | What it does |
 |---|---|---|
 | `VIDOFY_TOKEN` | **yes** | Personal MCP token (`vmt_…`). Spends **your own Vidofy coins**, exactly as the studio does. |
-| `VIDOFY_API_BASE` | no | Override the origin. Development only — e.g. `https://vidofy.local`. Defaults to `https://vidofy.ai`. |
+| `VIDOFY_API_BASE` | no | Override the origin the server talks to. Defaults to `https://vidofy.ai`, which is what you want. |
 
 `VIDOFY_API_KEY` is recognised only in order to be **refused**: a `vky_…` key bills a
 different balance, which this server does not serve. Setting it stops startup with a message
@@ -87,7 +97,7 @@ npm run build
 npm run inspect      # MCP Inspector — spends nothing
 ```
 
-Point it at a local server with `VIDOFY_API_BASE=https://vidofy.local`.
+`VIDOFY_API_BASE` points it at a different origin, if you are running one.
 
 **Nothing here writes to stdout.** With stdio transport, stdout *is* the protocol channel — a
 single stray `console.log()` puts a non-JSON line in the stream and the client drops the

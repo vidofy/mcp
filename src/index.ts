@@ -408,9 +408,9 @@ function registerTools(server: Server, cfg: Config): void {
                                     /* The site's own origin, derived rather than
                                      * written down: model logos are served from
                                      * it (the server prefixes the stored path
-                                     * with its own origin), and it differs per
-                                     * deployment — vidofy.local here, vidofy.ai
-                                     * in production. Omit it and the card falls
+                                     * with its own origin), and it differs
+                                     * between a local instance and production.
+                                     * Omit it and the card falls
                                      * back to a plain mark, which is a smaller
                                      * failure than a blank frame but still a
                                      * silent one. */
@@ -604,10 +604,9 @@ export function buildServer(cfg: Config, version: string): Server {
 
     if (cfg.mode === 'key') {
         /* This server is a PERSONAL product and stays one (owner decision,
-         * 2026-09-11). An organisation whose volume needs an API key is served
-         * by /api/v1 directly, which is built for exactly that and bills the
-         * credit wallet; wrapping it in an MCP server would be a second, worse
-         * front door to the same thing.
+         * 2026-09-11): it spends the user's own coins, and an API key bills a
+         * balance it does not serve. Key mode is detected only so the refusal
+         * can explain itself rather than surfacing later as a bare 401.
          *
          * So no tools are registered here — and the message says the door is
          * closed rather than "not yet". It read "not implemented yet"
@@ -620,9 +619,9 @@ export function buildServer(cfg: Config, version: string): Server {
          * the options — no name, model_key, credits or media_type (measured
          * 2026-09-11) — so get_model alone could not fill half its answer.
          * Six broken tools are worse than none. */
-        log('VIDOFY_API_KEY is not supported: this server is for personal Vidofy accounts. '
-            + 'Set VIDOFY_TOKEN (vmt_…) instead — create one at /en/studio/account/mcp-tokens. '
-            + 'For key-based integration call the Partners API at /api/v1 directly.');
+        log('VIDOFY_API_KEY is not supported: this server is for personal Vidofy accounts '
+            + 'and bills your own coins. Set VIDOFY_TOKEN (vmt_…) instead — create one at '
+            + 'https://vidofy.ai/en/studio/account/mcp-tokens.');
         // Still answer tools/list. We advertised the `tools` capability, so a
         // client WILL ask; an empty list is a valid answer, whereas leaving the
         // method unhandled returns -32601 and reads as a broken server.

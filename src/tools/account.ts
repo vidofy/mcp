@@ -41,8 +41,8 @@ export async function getBalance(cfg: Config): Promise<unknown> {
          * personal accounts by decision (2026-09-11). */
         return {
             unit: 'credits',
-            note: 'This server serves personal Vidofy accounts only. For an API key, '
-                + 'call the Partners API at /api/v1/account/balance directly.',
+            note: 'This server serves personal Vidofy accounts only, and reports the '
+                + 'coin balance of the account whose token it holds.',
         };
     }
 

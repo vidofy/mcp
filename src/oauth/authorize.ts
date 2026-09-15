@@ -183,7 +183,7 @@ export async function handleAuthorize(
     });
 
     /* The consent screen lives on the SITE, not here — a different origin in
-       development (vidofy.local) and the same one in production. Built from
+       development and the same one in production. Built from
        VIDOFY_API_BASE through the same validator the credential path uses, so a
        hostile value cannot send the user somewhere else. */
     const consent = new URL(CONSENT_PATH, resolveBaseUrl());

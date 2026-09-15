@@ -3,8 +3,8 @@
  *
  * ONE credential, ONE door — never both. The two modes bill different wallets:
  *
- *   VIDOFY_TOKEN   (vmt_…)  → /app/v1 → the user's own coins   (account mode)
- *   VIDOFY_API_KEY (vky_…)  → /api/v1 → the B2B credit wallet  (key mode)
+ *   VIDOFY_TOKEN   (vmt_…)  → the user's own coins      (account mode — served)
+ *   VIDOFY_API_KEY (vky_…)  → a different balance       (key mode — refused)
  *
  * Mixing them would mean a caller could not tell which balance a generation
  * was going to spend until after it spent it, so a request carrying both is
@@ -12,10 +12,9 @@
  *
  * Key mode is DETECTED but NOT SERVED, and that is the settled shape of the
  * product rather than a gap (owner decision, 2026-09-11): this server is for
- * personal Vidofy accounts. A company whose volume calls for an API key uses
- * /api/v1 directly — it is built for that, documented for it, and bills the
- * credit wallet. A second front door onto the same API, with fewer features,
- * would help nobody.
+ * personal Vidofy accounts and spends their own coins. It is detected only so
+ * that a key can be refused with an explanation instead of failing later as an
+ * unexplained 401.
  *
  * Detected rather than ignored so that someone who sets VIDOFY_API_KEY is told
  * where to go, instead of watching the server start and then fail on every
@@ -140,7 +139,8 @@ export function configForToken(
         throw new ConfigError(
             credential.startsWith('vky_')
                 ? 'That is an API key (vky_…). This connector serves personal Vidofy accounts and bills '
-                  + 'your own coins; for key-based integration call the Partners API at /api/v1 directly.'
+                  + 'your own coins — set VIDOFY_TOKEN (vmt_…) instead, from '
+                  + 'https://vidofy.ai/en/studio/account/mcp-tokens.'
                 : 'Not a personal MCP token. They start with "vmt_" — create one at '
                   + '/en/studio/account/mcp-tokens.'
         );
@@ -164,7 +164,7 @@ export function configForToken(
  * a second copy of them would be a second chance to get one wrong.
  */
 export function resolveBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
-    // VIDOFY_API_BASE exists for development against vidofy.local. Trailing
+    // VIDOFY_API_BASE exists for development against a local instance. Trailing
     // slashes are stripped so callers can join paths without doubling them.
     const baseUrl = ((env['VIDOFY_API_BASE'] ?? '').trim() || DEFAULT_BASE).replace(/\/+$/, '');
     if (!/^https?:\/\//i.test(baseUrl)) {
