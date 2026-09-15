@@ -138,11 +138,14 @@ export function configForToken(
     if (!credential.startsWith('vmt_')) {
         throw new ConfigError(
             credential.startsWith('vky_')
+                /* No full stop after either URL. A terminal that auto-links takes the
+                   trailing period as part of the href, and the user clicks through to
+                   a 404 — from a message whose whole job was to get them to that page. */
                 ? 'That is an API key (vky_…). This connector serves personal Vidofy accounts and bills '
                   + 'your own coins — set VIDOFY_TOKEN (vmt_…) instead, from '
-                  + 'https://vidofy.ai/en/studio/account/mcp-tokens.'
+                  + 'https://vidofy.ai/en/studio/account/mcp-tokens'
                 : 'Not a personal MCP token. They start with "vmt_" — create one at '
-                  + '/en/studio/account/mcp-tokens.'
+                  + 'https://vidofy.ai/en/studio/account/mcp-tokens'
         );
     }
     return {

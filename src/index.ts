@@ -621,7 +621,7 @@ export function buildServer(cfg: Config, version: string): Server {
          * Six broken tools are worse than none. */
         log('VIDOFY_API_KEY is not supported: this server is for personal Vidofy accounts '
             + 'and bills your own coins. Set VIDOFY_TOKEN (vmt_…) instead — create one at '
-            + 'https://vidofy.ai/en/studio/account/mcp-tokens.');
+            + 'https://vidofy.ai/en/studio/account/mcp-tokens');
         // Still answer tools/list. We advertised the `tools` capability, so a
         // client WILL ask; an empty list is a valid answer, whereas leaving the
         // method unhandled returns -32601 and reads as a broken server.

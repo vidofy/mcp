@@ -55,9 +55,31 @@ Nothing in this package can buy coins or change a plan, however it is prompted.
 
 ## Setup
 
-Create a personal MCP token at **vidofy.ai → Studio → Account → MCP Access**. It is shown once.
+There are two ways in. **Take the first one** unless your client cannot do it.
 
-Then add the server to your client. Nothing to install — `npx` fetches it on first run:
+### 1. Remote connector — nothing to install
+
+Give your client this URL:
+
+```
+https://vidofy.ai/mcp-app
+```
+
+You sign in **in your browser** and approve once. No token to copy, nothing to keep in a
+config file, and nothing to update when this package changes.
+
+| Client | How |
+|---|---|
+| **Claude.ai** · **Claude Desktop** | Settings → Connectors → *Add custom connector* → paste the URL → **Connect**, then approve the sign-in. They share one list: add it in either and it appears in both. Available on every plan, including Free — where you get one connector. |
+| **ChatGPT** | Settings → Connectors → add a custom connector (no such option? turn on Developer Mode in Settings first) → paste the URL → **Connect**, then approve. On a Business or Enterprise workspace an administrator adds it for everyone. |
+| **Claude Code** · **Codex** · **Cursor** | Each accepts a remote MCP server URL. Follow that client's own MCP documentation and give it the URL above. |
+
+Then ask it: *"list Vidofy modes"* to confirm the connection, and
+*"make me a 5-second clip of a red bicycle"* — it prices the generation before running it.
+
+### 2. Local stdio server — for a client that only speaks stdio
+
+Create a personal MCP token at **vidofy.ai → Studio → Account → MCP Access**. It is shown once.
 
 ```jsonc
 // claude_desktop_config.json   (Cursor: .cursor/mcp.json — same shape)
@@ -72,14 +94,14 @@ Then add the server to your client. Nothing to install — `npx` fetches it on f
 }
 ```
 
-Restart the client. Ask it to *"list Vidofy modes"* to confirm the connection, then
-*"make me a 5-second clip of a red bicycle"* — it will price it before it runs it.
-
-Prefer a pinned copy? `npm i -g @vidofy/mcp`, then:
+`npx` fetches it on first run. Prefer a pinned copy? `npm i -g @vidofy/mcp`, then:
 
 ```jsonc
 { "command": "vidofy-mcp", "env": { "VIDOFY_TOKEN": "vmt_..." } }
 ```
+
+Both paths reach the same account, the same models and the same balance. The difference is
+only where the process runs and how you prove who you are.
 
 ### Environment
 
