@@ -82,7 +82,7 @@ Once it is published, that becomes:
 | Variable | Required | What it does |
 |---|---|---|
 | `VIDOFY_TOKEN` | **yes** | Personal MCP token (`vmt_…`). Spends **your own Vidofy coins**, exactly as the studio does. |
-| `VIDOFY_API_BASE` | no | Override the origin the server talks to. Defaults to `https://vidofy.ai`, which is what you want. |
+| `VIDOFY_API_BASE` | no | Override the origin the server talks to. Defaults to `https://vidofy.ai/en/api`, which is what you want. |
 
 `VIDOFY_API_KEY` is recognised only in order to be **refused**: a `vky_…` key bills a
 different balance, which this server does not serve. Setting it stops startup with a message
