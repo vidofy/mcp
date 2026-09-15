@@ -1,7 +1,7 @@
 {
   "name": "@vidofy/mcp",
   "version": "0.1.0",
-  "description": "Browse Vidofy's AI models, price a generation before running it, and follow one to its result, from Claude, Cursor, or any MCP client — billed to your own Vidofy account.",
+  "description": "MCP server for Vidofy — generate video, images, audio and speech from Claude, ChatGPT, Cursor or any MCP client. Veo 3.1, Kling 3.0, Flux 2, Seedance 2.5 and 570+ models, billed to your own Vidofy account.",
   "mcpName": "ai.vidofy/mcp",
   "license": "MIT",
   "type": "module",
@@ -69,7 +69,7 @@
     "type": "git",
     "url": "git+https://github.com/vidofy/mcp.git"
   },
-  "homepage": "https://vidofy.ai",
+  "homepage": "https://vidofy.ai/en/mcp",
   "bugs": {
     "url": "https://github.com/vidofy/mcp/issues"
   },
