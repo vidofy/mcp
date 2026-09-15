@@ -1,0 +1,117 @@
+# @vidofy/mcp
+
+Generate images, video, audio and speech with [Vidofy](https://vidofy.ai) from Claude Desktop,
+Cursor, or any MCP client — **billed to your own Vidofy account**, at the same prices the website
+charges.
+
+> **Status: v0.1.0, the first public release.**
+>
+> **This server is for personal Vidofy accounts.** It takes one credential, `VIDOFY_TOKEN`,
+> and spends your own coins. Setting `VIDOFY_API_KEY` instead is refused at startup with a
+> message pointing at the alternative — it is not a feature waiting on a later release.
+> If you are integrating on behalf of a company, call the Partners API at
+> [`/api/v1`](https://vidofy.ai/docs/api-overview) directly: it is built and documented for
+> that, bills the API credit wallet, and does more than this server would.
+
+## Tools
+
+| Tool | What it does | Spends |
+|---|---|---|
+| `list_modes` | What Vidofy can generate: text-to-image, image-to-video, lipsync, speech… | no |
+| `list_models` | The models in one mode, with each one's credit cost and rough duration | no |
+| `get_model` | One model's full input contract: a JSON Schema, its file slots and their limits | no |
+| `estimate_cost` | What a generation will cost, before running it | no |
+| **`generate`** | **Runs it. The only tool that spends the balance.** | **yes** |
+| `get_status` | Whether a generation has finished | no |
+| `get_result` | The finished media | no |
+| `get_balance` | Coins left, and how many expire with the subscription | no |
+| `get_usage` | Recent generations and what they cost | no |
+
+The usual order is `list_modes` → `list_models` → `get_model` → `estimate_cost` → `generate`
+→ `get_status` → `get_result`.
+
+`generate` is the only tool without `readOnlyHint`, which is what tells a client to ask the user
+before running it. It charges at **submit**, not on success, and returns immediately with an id —
+a generation takes from ~30 seconds to several minutes, so the agent polls `get_status` rather
+than holding the call open. Output is **private by default**; pass `public: true` only when the
+user asked for a permanent public link.
+
+File inputs take a **path on the machine running the server**. The package reads the user's own
+file and streams it with the submit — it never makes a temporary copy — and checks the extension
+and size against that model's own limits first, so a file the server would reject never leaves
+the disk.
+
+**Not exposed, deliberately:** checkout, auto top-up, purchases, referrals, the daily reward.
+Nothing in this package can buy coins or change a plan, however it is prompted.
+
+## Setup
+
+Create a personal MCP token at **vidofy.ai → Studio → Account → MCP Access**. It is shown once.
+
+Until the package is on npm, point your client at a local build (`npm install && npm run build`):
+
+```jsonc
+// claude_desktop_config.json
+{
+  "mcpServers": {
+    "vidofy": {
+      "command": "node",
+      "args": ["/absolute/path/to/vidofy-mcp/dist/index.js"],
+      "env": { "VIDOFY_TOKEN": "vmt_..." }
+    }
+  }
+}
+```
+
+Once it is published, that becomes:
+
+```jsonc
+{ "command": "npx", "args": ["-y", "@vidofy/mcp"], "env": { "VIDOFY_TOKEN": "vmt_..." } }
+```
+
+### Environment
+
+| Variable | Required | What it does |
+|---|---|---|
+| `VIDOFY_TOKEN` | **yes** | Personal MCP token (`vmt_…`). Spends **your own Vidofy coins**, exactly as the studio does. |
+| `VIDOFY_API_BASE` | no | Override the origin. Development only — e.g. `https://vidofy.local`. Defaults to `https://vidofy.ai`. |
+
+`VIDOFY_API_KEY` is recognised only in order to be **refused**: a `vky_…` key spends the B2B
+credit wallet, which this server does not serve. Setting it stops startup with a message naming
+the token to use instead — and setting *both* is refused too, since the two bill different
+balances and no precedence rule is worth having to remember.
+
+## Development
+
+```bash
+npm install
+npm run build
+npm run inspect      # MCP Inspector — spends nothing
+```
+
+Point it at a local server with `VIDOFY_API_BASE=https://vidofy.local`.
+
+**Nothing here writes to stdout.** With stdio transport, stdout *is* the protocol channel — a
+single stray `console.log()` puts a non-JSON line in the stream and the client drops the
+connection with an error that explains nothing. Diagnostics go to stderr via the `log()` helper
+in `src/index.ts`.
+
+## Layout
+
+```
+src/config.ts          credential + mode + base URL, validated at startup
+src/backend.ts         the only place that talks HTTP: auth, retries, multipart, errors
+src/schema.ts          one model's m_options → a JSON Schema the agent can fill in
+src/map/b2c.ts         both response shapes → one; strips the provider cost
+src/tools/info.ts      list_modes, list_models, get_model
+src/tools/generation.ts estimate_cost, generate, get_status, get_result
+src/tools/account.ts   get_balance, get_usage
+src/index.ts           the server: stdio transport, tool registration, annotations
+
+
+server.json     MCP registry manifest (name must match package.json "mcpName")
+```
+
+## Licence
+
+MIT

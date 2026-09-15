@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>card harness</title>
+<style>
+  body{margin:0;padding:18px;background:#fafaf9;font:13px ui-sans-serif,system-ui;color:#141413}
+  h1{font-size:13px;margin:0 0 4px}
+  p.n{color:#6b6a67;margin:0 0 14px;font-size:12px}
+  .row{display:flex;flex-direction:column;gap:22px}
+  .col{width:var(--w,900px);max-width:100%}
+  .lbl{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#6b6a67;margin:0 0 6px}
+  /* The dashed box is the HOST's allocation. The frame inside is what the card
+     asked for. A gap between them is exactly the bug being tested. */
+  .slot{border:1px dashed #d4d4d0;background:#fff}
+  iframe{display:block;width:100%;border:0;height:420px}
+  .log{font:11px ui-monospace,monospace;color:#6b6a67;margin-top:6px;white-space:pre-line}
+</style>
+</head>
+<body>
+<h1>Generation card — host harness</h1>
+<p class="n">The dashed box is the height the host gave the frame; the card should fill it with no grey tail. Width is set by ?w= (default 900) — the card is 100% of whatever the host gives it, so testing at a narrow width tests a size it never has.</p>
+
+<div class="row">
+  <div class="col"><p class="lbl">1 · waiting</p><div class="slot"><iframe id="f1" src="../dist/ui/generation-card.html"></iframe></div><div class="log" id="l1"></div></div>
+  <div class="col"><p class="lbl">2 · image done</p><div class="slot"><iframe id="f2" src="../dist/ui/generation-card.html"></iframe></div><div class="log" id="l2"></div></div>
+  <div class="col"><p class="lbl">3 · failed</p><div class="slot"><iframe id="f3" src="../dist/ui/generation-card.html"></iframe></div><div class="log" id="l3"></div></div>
+  <div class="col"><p class="lbl">4 · landscape (letterboxing the other way)</p><div class="slot"><iframe id="f4" src="../dist/ui/generation-card.html"></iframe></div><div class="log" id="l4"></div></div>
+</div>
+
+<script>
+/* Width from the query string, because the pane width is the variable that
+   decides whether the buttons fit on one row and whether a 16:9 image fills. */
+document.documentElement.style.setProperty('--w',
+  (new URLSearchParams(location.search).get('w') || '900') + 'px');
+
+/* A minimal MCP-Apps host: answers ui/initialize, honours size-changed by
+   resizing the frame (which is what a real host does), and replies to the
+   card's tools/call with a canned state.
+
+   THE THREE URLS BELOW ARE PLACEHOLDERS. Paste your own while working on the
+   card, and do NOT commit what you pasted.
+
+   They used to hold two real presigned links from a live generation. A signed
+   URL expires in hours, so it reads as harmless — but the query string carries
+   the storage ACCOUNT ID and ACCESS KEY ID in X-Amz-Credential, and the host
+   carries the private bucket name, and none of those three ever expire. This
+   file is tracked, and it was one push away from a public repository. Found by
+   audit 2026-09-15, before any push. A fixture is a fixture: if it came out of
+   production, it does not belong in a file. */
+const IMG  = 'https://example.invalid/sample-portrait.png';
+const WIDE = 'https://example.invalid/sample-landscape.jpeg';
+const ICON = 'https://example.invalid/model-logo.png';
+
+const CASES = {
+  f1: { first: { id: 'X', status: 'processing', model_name: 'Flux Schnell', model_icon: ICON, estimated_seconds: 16 },
+        poll:  { id: 'X', status: 'processing', done: false, model: 'Flux Schnell', progress: 40,
+                 wait_label: '7s elapsed · about 16s', poll_after_ms: 999999 } },
+  /* A FREE account's result: the submit handler forced m_public='on', so the
+     file is the watermarked public copy and the card offers the way out of it.
+     f4 below is the same shape WITHOUT the two fields — the subscriber case —
+     so the pair proves the button appears only when it is honest. */
+  f2: { first: { id: 'X', status: 'processing', model_name: 'Flux Schnell', model_icon: ICON, estimated_seconds: 16 },
+        poll:  { id: 'X', status: 'success', done: true, model: 'Flux Schnell', media_type: 'image',
+                 url: IMG, download_url: IMG, credits: 2, dimensions: '1344 × 768', duration_seconds: 17, vidofy_url: 'https://example.invalid/en/view/X',
+                 watermarked: true, pricing_url: 'https://example.invalid/en/pricing' } },
+  f3: { first: { id: 'X', status: 'processing', model_name: 'Nano Banana 2', model_icon: ICON, estimated_seconds: 10 },
+        poll:  { id: 'X', status: 'failed', done: true, model: 'Nano Banana 2',
+                 error: '[provider] Failed to submit your request.', refunded: true } },
+  /* A LANDSCAPE result. The stage is fixed, so this one letterboxes top and
+     bottom where the portrait letterboxes left and right — and both cards must
+     come out the same height. That equality is the whole point of the change. */
+  f4: { first: { id: 'X', status: 'processing', model_name: 'Flux Schnell', model_icon: ICON, estimated_seconds: 16 },
+        poll:  { id: 'X', status: 'success', done: true, model: 'Flux Schnell', media_type: 'image',
+                 url: WIDE, download_url: WIDE, credits: 2, dimensions: '1344 × 768', duration_seconds: 9, vidofy_url: 'https://example.invalid/en/view/X' } },
+};
+
+/* Resolve the sender AT MESSAGE TIME, by comparing against each frame's
+   CURRENT contentWindow. A map built up front keys on the about:blank windows
+   the iframes start with, and those are replaced when the real document loads —
+   so every message then matched the same stale entry and all three cards showed
+   whatever the last one was told. */
+function frameIdOf(src) {
+  for (const id of Object.keys(CASES)) {
+    if (document.getElementById(id).contentWindow === src) return id;
+  }
+  return null;
+}
+
+addEventListener('message', (e) => {
+  const id = frameIdOf(e.source); if (!id) return;
+  const m = e.data; if (!m || m.jsonrpc !== '2.0') return;
+  const reply = (result) => e.source.postMessage({ jsonrpc: '2.0', id: m.id, result }, '*');
+
+  if (m.method === 'ui/initialize') {
+    reply({ protocolVersion: '2026-01-26', capabilities: {},
+            hostInfo: { name: 'harness', version: '1' },
+            hostContext: { styles: { variables: {} } } });
+    return;
+  }
+  if (m.method === 'ui/notifications/initialized') {
+    // Deliver the tool result the way a host does, once the view says it is ready.
+    setTimeout(() => e.source.postMessage({ jsonrpc: '2.0',
+      method: 'ui/notifications/tool-result',
+      params: { structuredContent: CASES[id].first } }, '*'), 60);
+    return;
+  }
+  if (m.method === 'tools/call') { reply({ structuredContent: CASES[id].poll }); return; }
+  if (m.method === 'ui/notifications/size-changed') {
+    const f = document.getElementById(id);
+    f.style.height = m.params.height + 'px';          // a real host does exactly this
+    document.getElementById('l' + id.slice(1)).textContent += 'asked for ' + m.params.height + 'px\n';
+    return;
+  }
+  if (m.method === 'ui/open-link') { document.getElementById('l' + id.slice(1)).textContent += 'open-link → ' + String(m.params.url).slice(0, 40) + '…\n'; reply({}); return; }
+  if (m.id !== undefined) reply({});
+});
+</script>
+</body>
+</html>

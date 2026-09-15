@@ -1,0 +1,869 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vidofy generation</title>
+<style>
+/* Host tokens with fallbacks. The host sends its palette in
+   hostContext.styles.variables; a host that sends none must still render, so
+   every variable is declared here first and only overwritten if one arrives. */
+:root{
+  --color-background-primary:#fff;
+  --color-background-secondary:#f6f6f5;
+  --color-border:#e6e4e1;
+  --color-text-primary:#141413;
+  --color-text-secondary:#6b6a67;
+  --color-accent:#d97757;
+  --font-sans:ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --color-background-primary:#1f1e1d;
+    --color-background-secondary:#262625;
+    --color-border:#3a3937;
+    --color-text-primary:#f5f4f2;
+    --color-text-secondary:#a3a09b;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:transparent}
+body{font-family:var(--font-sans);color:var(--color-text-primary);font-size:13px}
+
+.card{border:1px solid var(--color-border);border-radius:12px;overflow:hidden;
+      background:var(--color-background-primary)}
+.head{display:flex;align-items:center;gap:8px;padding:10px 12px;
+      border-bottom:1px solid var(--color-border)}
+/* The provider's logo. Falls back to a neutral mark when the model has no
+ * icon or the image fails to load — a coloured square that pretends to be a
+ * brand is worse than an obvious placeholder. */
+.mark{width:18px;height:18px;border-radius:5px;flex:none;object-fit:contain;
+      background:var(--color-background-secondary)}
+.title{font-size:12.5px;font-weight:600;flex:1;min-width:0;
+       overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pill{font-size:11px;padding:2px 7px;border-radius:999px;flex:none;
+      background:var(--color-background-secondary);color:var(--color-text-secondary)}
+.pill.live{color:var(--color-accent)}
+.pill.bad{color:#dc2626}
+
+/* A stage of FIXED height, with the media contained inside it.
+ *
+ * The card used to take the media's own height, so a 9:16 video produced a very
+ * tall card and a 16:9 image a short one — the same tool giving a different
+ * shape every time, and the whole conversation below it reflowing when the
+ * result replaced the wait. A fixed stage ends both: the box is the same before
+ * and after, the media fits itself inside by its own ratio, and what is left
+ * over is simply empty.
+ *
+ * Dark in both themes on purpose. This is the one part of the card that is not
+ * chrome — it is where the picture is looked at — and neutral dark is what
+ * every media viewer uses, because it stops the surround competing with the
+ * image. The rest of the card still follows the host's palette.
+ *
+ * 16:9, not a fixed pixel height. A fixed 380px looked right in a narrow test
+ * harness and is wrong where the card actually lives: on a 1350px pane a
+ * landscape 16:9 image would be limited by that height to 675px wide and sit
+ * between two 337px bars — the most common shape there is, displayed at half
+ * width. Matching the stage to 16:9 makes that shape fill the width exactly,
+ * and leaves portrait to letterbox at the sides, which is the trade every media
+ * viewer makes because landscape is what most output is.
+ *
+ * It is still ONE height for every generation at a given pane width, which is
+ * the property that mattered: the box does not change between the wait and the
+ * result, and nothing below it moves.
+ *
+ * NO invented ceiling. A max-height of 560px was tried and quietly undid the
+ * whole point: on a 1350px pane it capped the stage before 16:9 was reached, so
+ * a landscape image came out 996 wide between two 177px bars — exactly the
+ * problem this change exists to remove, reintroduced by a number chosen without
+ * measuring. The only ceiling honoured is the host's own
+ * containerDimensions.maxHeight, applied at handshake below: the host knows how
+ * tall its pane is, and this does not. */
+.stage{position:relative;width:100%;aspect-ratio:16/9;background:#18181b;
+       display:flex;align-items:center;justify-content:center;overflow:hidden}
+.stage img{display:block;max-width:100%;max-height:100%;width:auto;height:auto;
+           object-fit:contain}
+
+/* The wait fills the same stage the result will. It was aspect-ratio:3/4 —
+ * a portrait-shaped hole reserved before anything knew the shape — and briefly
+ * a short strip, which fixed the size but made the card jump when the image
+ * arrived. Filling the stage means the box never changes at all. */
+.wait{width:100%;height:100%;display:flex;flex-direction:column;
+      align-items:center;justify-content:center;gap:7px;position:relative;
+      color:#e4e4e7}
+.wait::after{content:"";position:absolute;inset:0;
+  background:linear-gradient(100deg,transparent 35%,rgba(127,127,127,.11) 50%,transparent 65%);
+  background-size:220% 100%;animation:sweep 1.9s linear infinite}
+@keyframes sweep{from{background-position:180% 0}to{background-position:-80% 0}}
+@media (prefers-reduced-motion:reduce){.wait::after{animation:none}}
+.pct{font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+
+/* A turning ring, shown while there is no percentage to show.
+ *
+ * The dash that stood here read as "nothing is happening" — a still character
+ * in a still box, which is what a stalled card would look like too. Motion is
+ * the only thing that distinguishes waiting from stuck, so the ring runs
+ * whenever the server has given us no number, and gives way the moment it does.
+ * Honoured reduced-motion: the ring stops turning and simply sits there, which
+ * is still a shape rather than a dash. */
+.spin{width:26px;height:26px;border-radius:50%;
+      border:2.5px solid rgba(255,255,255,.16);border-top-color:var(--color-accent);
+      animation:turn .9s linear infinite}
+@keyframes turn{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+/* Fixed colours, not tokens: these sit ON the dark stage, so the host's
+   text colour — which is dark in light mode — would be unreadable there. */
+.wait-note{font-size:11.5px;color:#a1a1aa}
+.stage-note{font-size:12px;color:#a1a1aa;padding:0 20px;text-align:center;line-height:1.6}
+.bar{position:absolute;left:0;right:0;bottom:0;height:2px;background:rgba(127,127,127,.16);
+     overflow:hidden}
+.bar>i{display:block;height:100%;width:0;background:var(--color-accent);transition:width .6s ease}
+/* Indeterminate: a short segment crossing the track, for when there is no
+   percentage to fill it with (which is now always — see cardState). A 0-width
+   determinate bar is an empty line that reads as "stalled"; this reads as
+   "running" without asserting how far along it is. Reduced motion parks a
+   quarter-width segment at the left: still a mark, just not a moving one. */
+.bar.indet>i{width:32%;transition:none;animation:slide 1.6s ease-in-out infinite}
+@keyframes slide{from{transform:translateX(-110%)}to{transform:translateX(320%)}}
+@media (prefers-reduced-motion:reduce){.bar.indet>i{animation:none;width:25%}}
+
+/* A real control since 2026-09-11, not the decoration it was.
+ *
+ * It carried `pointer-events:none` and had no handler, so the one thing on the
+ * card that looks like a play button was the one thing that did nothing — the
+ * owner clicked it and reported it broken, correctly. It now plays the video in
+ * place; `pointer-events:auto` is what makes the click reach it at all. */
+.play{position:absolute;width:46px;height:46px;border-radius:50%;
+      background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;
+      pointer-events:auto;cursor:pointer;border:0;padding:0;
+      transition:background .15s ease,transform .15s ease}
+.play:hover{background:rgba(0,0,0,.72);transform:scale(1.06)}
+.play:focus-visible{outline:2px solid var(--color-accent);outline-offset:3px}
+@media (prefers-reduced-motion:reduce){.play{transition:none}.play:hover{transform:none}}
+.play::after{content:"";border-left:13px solid #fff;border-top:8px solid transparent;
+             border-bottom:8px solid transparent;margin-left:4px}
+/* The poster is the rest of the target: on a video the whole frame is the
+   click area, which is what every player trains people to expect. */
+.stage img.tap{cursor:pointer}
+/* Same box as the poster it replaces, so starting playback moves nothing. */
+.stage video{display:block;max-width:100%;max-height:100%;width:auto;height:auto;
+             object-fit:contain;background:#000}
+
+/* The audio player sits in the middle of the same dark stage the picture would
+   have filled, so the card is one shape for all three media types. The native
+   control is used as-is: it is the widget every user already knows, it is
+   keyboard accessible and screen-reader labelled for free, and it carries the
+   scrubber and volume that a hand-rolled button would have to reinvent. */
+.aud-wrap{display:flex;flex-direction:column;align-items:center;gap:12px;
+          padding:0 18px;width:100%;max-width:420px}
+.aud-wrap audio{width:100%}
+.aud-label{font-size:12px;color:#a1a1aa;letter-spacing:.02em}
+
+/* min-height reserves the row the buttons will occupy, so the card is the SAME
+ * height while it waits as it is when it finishes. Without it the footer is
+ * empty during the wait and the card grew 46px on completion — a small jump,
+ * but a jump, and the point of a fixed stage is that nothing below the card
+ * moves when the result lands. 28px is one button's height. */
+.foot{display:flex;align-items:center;gap:6px;padding:9px 10px;flex-wrap:wrap;
+      min-height:28px;box-sizing:content-box}
+.btn{font:inherit;font-size:12px;padding:5px 10px;border-radius:7px;cursor:pointer;
+     border:1px solid var(--color-border);background:var(--color-background-primary);
+     color:var(--color-text-primary)}
+.btn:hover{background:var(--color-background-secondary)}
+.btn.primary{background:var(--color-text-primary);color:var(--color-background-primary);
+             border-color:var(--color-text-primary)}
+.spacer{flex:1;min-width:0}
+/* The meta line yields before the buttons do. It was nowrap and unshrinkable,
+ * so on a narrower pane it pushed the action row onto a second line — the
+ * buttons are what people click, and "2 coins · 1344 × 768 · 17s" is what they
+ * can afford to lose the end of. */
+.btn{flex:none}
+.meta{font-size:11.5px;color:var(--color-text-secondary);
+      font-variant-numeric:tabular-nums;white-space:nowrap;
+      min-width:0;overflow:hidden;text-overflow:ellipsis}
+.err{padding:15px 13px;font-size:12.5px;line-height:1.6;color:var(--color-text-secondary)}
+.err b{color:var(--color-text-primary);font-weight:600;display:block;margin-bottom:3px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="head">
+    <img class="mark" id="mark" alt="" hidden>
+    <span class="mark" id="markFallback"></span>
+    <span class="title" id="title">Vidofy</span>
+    <span class="pill live" id="pill">starting</span>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="wait" id="wait">
+      <div class="spin" id="spin"></div>
+      <div class="pct" id="pct" hidden></div>
+      <div class="wait-note" id="note">checking…</div>
+      <div class="bar" id="barTrack"><i id="bar"></i></div>
+    </div>
+    <img id="shot" alt="" hidden>
+    <!-- preload="none" so a card that is never played costs no bandwidth: the
+         signed url is only fetched once someone asks for it. playsinline keeps
+         iOS from hijacking the frame into its fullscreen player. -->
+    <video id="vid" hidden controls playsinline preload="none"></video>
+    <button class="play" id="play" type="button" aria-label="Play video" hidden></button>
+    <!-- Audio has no frame to show, so the stage holds a player instead of a
+         picture. No autoplay — a chat transcript that starts making noise on
+         its own is hostile, and the browser would refuse it without a gesture
+         anyway.
+
+         preload="metadata", not "none", to learn the one fact nobody else can
+         supply: how long the result actually is. A text of a few thousand
+         characters can produce seven minutes of speech, and until this landed
+         the card never said so.
+
+         What that costs, measured rather than assumed: Chrome buffered 6.2
+         seconds of a 430.7-second WAV to answer — about 300 KB of a 20.6 MB
+         file, 1.4% of it, and less again for a compressed format. Playback
+         does NOT start (verified paused with readyState 4), and the rest of
+         the file is still only fetched when the user presses play. -->
+
+    <div class="aud-wrap" id="audWrap" hidden>
+      <div class="aud-label" id="audLabel">Audio result</div>
+      <audio id="aud" controls preload="metadata"></audio>
+    </div>
+    <div class="stage-note" id="stageNote" hidden></div>
+  </div>
+
+  <div class="err" id="err" hidden><b id="errTitle"></b><span id="errBody"></span></div>
+
+  <div class="foot" id="foot">
+    <button class="btn primary" id="bOpen" hidden>Open full size</button>
+    <button class="btn" id="bDownload" hidden>Download</button>
+    <button class="btn" id="bVidofy" hidden>Open on Vidofy</button>
+    <!-- Shown ONLY when the file on screen actually carries the watermark
+         (server-stated, `m_watermarked`). Never over a clean image:
+         offering to remove something that is not there reads as broken, and a
+         subscriber must never be shown an upgrade they already bought. -->
+    <button class="btn" id="bClean" hidden>Remove watermark</button>
+    <button class="btn" id="bReuse" hidden>Use as input</button>
+    <button class="btn" id="bReprompt" hidden>Reprompt</button>
+    <span class="spacer"></span>
+    <span class="meta" id="meta"></span>
+  </div>
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    /* ── JSON-RPC over postMessage ────────────────────────────────────────
+       The view is a sandboxed iframe; every capability it has is a message to
+       the host. Requests carry an id and resolve when the matching response
+       arrives; notifications carry none. */
+    var nextId = 1;
+    var pending = new Map();
+
+    function call(method, params) {
+        var id = nextId++;
+        return new Promise(function (resolve, reject) {
+            pending.set(id, { resolve: resolve, reject: reject });
+            parent.postMessage({ jsonrpc: '2.0', id: id, method: method, params: params || {} }, '*');
+            setTimeout(function () {
+                if (pending.has(id)) { pending.delete(id); reject(new Error(method + ' timed out')); }
+            }, 30000);
+        });
+    }
+    function notify(method, params) {
+        parent.postMessage({ jsonrpc: '2.0', method: method, params: params || {} }, '*');
+    }
+
+    var el = function (id) { return document.getElementById(id); };
+    /* fails: CONSECUTIVE failed polls, reset on every answer — this is what the
+     *        give-up threshold counts. tries stays a plain total, for the log.
+     * polling: one request in flight at a time, so the notification and a
+     *        pending timer cannot start two chains of setTimeout. */
+    var state = { id: null, done: false, timer: null, tries: 0, fails: 0,
+                  polling: false, iconSet: false,
+                  // isVideo/poster decide what a click on the stage does;
+                  // playing guards against a second click restarting the file.
+                  isVideo: false, poster: '', playing: false,
+                  url: '', download: '', vidofy: '' };
+
+    /* ── rendering ────────────────────────────────────────────────────── */
+
+    /* Height reporting — the thing that decides whether there is a gap.
+     *
+     * The host sets the iframe to whatever this reports, in both directions,
+     * and until it hears anything it uses a default of its own — which is tall.
+     * So every state change has to report, promptly and accurately.
+     *
+     * Measure the CARD, not the document. documentElement.scrollHeight is the
+     * viewport when the content is shorter than it, so a small error card kept
+     * reporting the frame's own height and the gap below it never closed: the
+     * card asked for exactly the space it already had.
+     *
+     * Reported after a frame, because a height read in the same tick as the DOM
+     * change is the height from before it. */
+    var card = document.querySelector('.card');
+    var lastH = 0;
+    var sizeTimer = null;
+
+    function emitSize() {
+        /* getBoundingClientRect forces layout, so this reads the height AFTER
+         * whatever DOM change just happened — no waiting required. */
+        var r = card.getBoundingClientRect();
+        var h = Math.ceil(r.height);
+        if (h <= 0 || h === lastH) return;
+        lastH = h;
+        notify('ui/notifications/size-changed', { height: h, width: Math.ceil(r.width) });
+    }
+
+    /* Report now, and once more shortly after.
+     *
+     * The first version used requestAnimationFrame and a ResizeObserver, and
+     * MEASURED IN A HOST HARNESS neither one ever fired: both are driven by the
+     * rendering lifecycle, and a frame the browser is not painting — hidden,
+     * backgrounded, scrolled out of view — gets no lifecycle at all. The card
+     * then never reported a height, the host kept its default, and the grey gap
+     * this whole mechanism exists to close came back.
+     *
+     * Timers are not tied to painting. So: measure synchronously for the change
+     * that just happened, then again after a moment for the layout that settles
+     * late — a decoded image, a wrapped line, a font arriving. */
+    function reportSize() {
+        emitSize();
+        clearTimeout(sizeTimer);
+        sizeTimer = setTimeout(emitSize, 150);
+    }
+
+    /* Still observed when the environment allows it — it catches changes no
+     * code here initiated. It is a bonus, never the mechanism. */
+    if (typeof ResizeObserver !== 'undefined') {
+        new ResizeObserver(function () { emitSize(); }).observe(card);
+    }
+
+    /** The provider's logo, once. Silent on failure — see .mark. */
+    function setIcon(url) {
+        if (!url || state.iconSet) return;
+        var img = el('mark');
+        img.onload = function () {
+            state.iconSet = true;
+            el('markFallback').hidden = true;
+            img.hidden = false;
+            reportSize();
+        };
+        img.onerror = function () { img.hidden = true; };
+        img.src = url;
+    }
+
+    function setWaiting(pct, label, model) {
+        /* Only ever called while a job is unfinished, so any media still
+           mounted belongs to a previous result this card is being reused for.
+           Audio is checked by its wrapper rather than state.playing: the native
+           controls start it without going through playInline, so that flag
+           says nothing about a sound file that is mid-sentence. */
+        if (state.playing || el('audWrap').hidden === false) stopMedia();
+        if (model) el('title').textContent = model;
+        el('pill').textContent = 'generating';
+        el('pill').className = 'pill live';
+        /* A number when the server has one, a turning ring when it does not —
+         * never both, and never the dash that used to stand in for a number and
+         * read as "nothing is happening". */
+        var known = pct !== null && pct !== undefined;
+        el('pct').hidden = !known;
+        el('spin').hidden = known;
+        if (known) el('pct').textContent = Math.round(pct) + '%';
+        /* The TRACK carries the indeterminate class, the FILL carries the
+           width — so the two modes cannot both apply and leave a segment
+           sliding at some stale percentage. */
+        el('barTrack').classList.toggle('indet', !known);
+        el('bar').style.width = known ? pct + '%' : '';
+        el('note').textContent = label || 'working…';
+        reportSize();
+    }
+
+    function setDone(d) {
+        state.done = true;
+        /* Cleared per result, so a card reused for a second generation cannot
+           caption it with the first one's length while its own header loads. */
+        state.mediaSeconds = 0;
+        // Held for the buttons, which are one-liners on purpose.
+        state.url = d.url || '';
+        state.download = d.download_url || '';
+        state.vidofy = d.vidofy_url || '';
+        state.pricing = d.pricing_url || '';
+        el('wait').hidden = true;
+        el('pill').textContent = 'done';
+        el('pill').className = 'pill';
+        if (d.model) el('title').textContent = d.model;
+
+        var isVideo = d.media_type === 'video';
+        var isAudio = d.media_type === 'audio';
+        /* Only a STILL belongs in the <img>.
+         *
+         * This read `isVideo ? poster : d.url`, so an audio result put its own
+         * .wav into an image tag. The decode failed, img.onerror fired, and the
+         * card called fail() — a successful, already-charged generation
+         * rendered as "The preview link expired." Measured 2026-09-11 against a
+         * real row: pill "failed", shot src ending .wav, stage hidden. The
+         * "Audio — nothing to show" branch below could never run, because it
+         * needs an EMPTY pic and d.url is always set on success. */
+        /* The poster for BOTH kinds now. An image gained one on 2026-09-11 —
+           before that poster_url was the output key itself, so this box pulled
+           the whole file (1.5 MB measured) to fill 380 pixels. Falling back to
+           d.url keeps every older row working, where the two are still the
+           same string. state.url is untouched: "Open full size" must still
+           reach the real file. */
+        var pic = isAudio ? '' : isVideo ? (d.poster_url || '') : (d.poster_url || d.url || '');
+        // Held for playInline, which runs on a click long after this.
+        state.isVideo = isVideo;
+        state.poster = isVideo ? pic : '';
+
+        if (pic) {
+            var img = el('shot');
+            img.src = pic;
+            img.hidden = false;
+            img.className = isVideo ? 'tap' : '';
+            img.onload = reportSize;
+            /* A signed url expires; if it has by the time the host paints,
+               say so rather than showing a broken frame. */
+            img.onerror = function () {
+                img.hidden = true;
+                fail('The preview link expired.', 'The file is fine — use Open or Download.');
+            };
+            el('play').hidden = !isVideo;
+        } else if (isAudio && d.url) {
+            /* Audio is listened to, not looked at — so the stage carries a
+               player rather than a sentence telling the user to go elsewhere,
+               which is what it did until 2026-09-11. Allowed by the same CSP
+               line as the video: resourceDomains covers media-src, and audio
+               comes from the identical private R2 host (it is ALWAYS private —
+               the worker's public upload is guarded by `!= "audio"`). */
+            var a = el('aud');
+            /* The element is the only party that knows the real length, and it
+               knows it as soon as the header lands. Guarded because a stream
+               of unknown length reports Infinity, and NaN before it loads —
+               neither is a duration worth printing. */
+            a.onloadedmetadata = function () {
+                if (isFinite(a.duration) && a.duration > 0) {
+                    state.mediaSeconds = a.duration;
+                    renderMeta();
+                    reportSize();
+                }
+            };
+            a.src = d.url;
+            a.onerror = function () {
+                el('audWrap').hidden = true;
+                el('stageNote').textContent = 'Could not load the audio — the link may have expired. Use Download or Open on Vidofy.';
+                el('stageNote').hidden = false;
+                reportSize();
+            };
+            el('audWrap').hidden = false;
+        } else {
+            // A video or image whose poster never got made. The stage keeps its
+            // size either way; only its contents differ.
+            el('stageNote').textContent = isVideo
+                // No poster, but the file itself is fine — the Play button
+                // below loads it into the same stage.
+                ? 'No preview frame for this result. Press Play to watch it here.'
+                : 'No preview frame for this result. Open it with the button below.';
+            el('stageNote').hidden = false;
+        }
+
+        el('bOpen').hidden = !d.url;
+        // "full size" means nothing for a sound file, and the player is already
+        // on the stage — this button is only the way out to the raw file.
+        el('bOpen').textContent = isVideo ? 'Play' : isAudio ? 'Open' : 'Open full size';
+
+        /* Which button is the obvious one depends on the medium.
+         *
+         * On a sound card the player is already on the stage, so Open — a raw
+         * .wav in a browser tab — is the least useful control there, while
+         * keeping the file is what the listener actually wants next. Owner
+         * decision 2026-09-11. Open stays, as the way out to the raw file,
+         * just not as the highlighted one.
+         *
+         * Both classes are assigned outright rather than toggled: a card
+         * re-rendered for a second result must never end up with two primary
+         * buttons, or none. */
+        el('bOpen').className = isAudio ? 'btn' : 'btn primary';
+        el('bDownload').className = isAudio ? 'btn primary' : 'btn';
+        el('bDownload').hidden = !d.download_url;
+        el('bVidofy').hidden = !d.vidofy_url;
+        // Both conditions, not either: watermarked says the button is honest,
+        // pricing_url says it has somewhere to go. The server sends the second
+        // only alongside the first, so this is belt and braces against an older
+        // or partial payload rather than two independent facts.
+        el('bClean').hidden = !(d.watermarked && d.pricing_url);
+        el('bReuse').hidden = !(d.id && !isVideo);
+        el('bReprompt').hidden = !d.id;
+
+        var bits = [];
+        if (d.credits !== null && d.credits !== undefined) bits.push(d.credits + ' coins');
+        if (d.dimensions) bits.push(d.dimensions);
+        // Already worded and formatted by cardState ("took 3m 54s") — it is
+        // generation time, not the clip's length, and the label says so.
+        if (d.duration_label) bits.push(d.duration_label);
+        state.bits = bits;
+        renderMeta();
+        reportSize();
+    }
+
+    /** Seconds as "47s" / "3m 54s" — the spelling cardState uses server-side.
+     *  Duplicated here of necessity: this number is MEASURED in the browser,
+     *  so the server has nothing to format. Keep the two spellings identical. */
+    function prettySeconds(secs) {
+        var s = Math.max(0, Math.round(secs));
+        return s < 60 ? s + 's' : Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+    }
+
+    /* The footer, plus the media's OWN length once the player reports it.
+     *
+     * Measured, never estimated. A words-to-seconds guess was considered and
+     * rejected on measurement: across real TTS outputs the rate ranges from
+     * 0.13 to 0.81 seconds per word — 6.4x — and the word count itself is
+     * wrong for non-Latin scripts. The element knows the true answer, so it
+     * is the one that gets asked.
+     *
+     * "of audio" and not a bare duration, because "took 3m 54s" already sits
+     * on this line and two bare durations side by side cannot be told apart. */
+    function renderMeta() {
+        var bits = (state.bits || []).slice();
+        if (state.mediaSeconds) bits.push(prettySeconds(state.mediaSeconds) + ' of audio');
+        el('meta').textContent = bits.join(' · ');
+    }
+
+    /**
+     * Stop and unload the player.
+     *
+     * Hiding the stage does NOT stop a <video> — it keeps playing, audibly,
+     * behind a box the user can no longer see or pause. So every path that
+     * takes the result off screen comes through here first. Dropping the src
+     * also releases the buffered file rather than leaving it in memory for a
+     * card the conversation has scrolled past.
+     */
+    function stopMedia() {
+        [el('vid'), el('aud')].forEach(function (m) {
+            if (!m) return;
+            try { m.pause(); } catch (_e) { /* not started; nothing to pause */ }
+            m.removeAttribute('src');
+            if (typeof m.load === 'function') m.load();   // abandons a request in flight
+        });
+        el('vid').hidden = true;
+        el('audWrap').hidden = true;
+        state.playing = false;
+    }
+
+    function fail(title, body) {
+        state.done = true;
+        stopMedia();
+        el('wait').hidden = true;
+        /* The stage goes entirely, not just its contents. It holds a 16:9 box
+         * now, so leaving it would put a large empty dark box above a one-line
+         * error — the failed card should be the SHORTEST of the three, not the
+         * same size as a result that does not exist. */
+        el('stage').hidden = true;
+        el('pill').textContent = 'failed';
+        el('pill').className = 'pill bad';
+        el('errTitle').textContent = title;
+        el('errBody').textContent = body || '';
+        el('err').hidden = false;
+        reportSize();
+    }
+
+    /* ── polling, through the HOST ────────────────────────────────────────
+       Not a fetch to the API. That would need this page to hold the user's
+       MCP token, and this page is HTML the host renders — a credential put
+       here is a credential handed to the frame. tools/call goes through the
+       host to the server, which is where the token already lives. The tool is
+       registered app-only, so the model never sees these calls and waiting
+       costs no tokens. */
+    function poll() {
+        if (state.done || !state.id) return;
+        /* One in flight at a time. Both the host notification and a pending
+         * timer can call this, and a slow round trip used to let a second start
+         * on top of the first — two chains of setTimeout from then on, each
+         * doubling at the next overlap. */
+        if (state.polling) return;
+        state.polling = true;
+        clearTimeout(state.timer);
+        state.tries++;
+        call('tools/call', { name: 'generation_card_state', arguments: { id: state.id } })
+            .then(function (res) {
+                /* An isError result is an ANSWER, not a blip: the server was
+                 * reached and said no. Retrying it 200 times changes nothing
+                 * except how long the user waits to be told. */
+                if (res && res.isError && !(res.structuredContent && res.structuredContent.status === 'success')) {
+                    var m = res.content && res.content[0] && res.content[0].text;
+                    return fail(m || 'The generation could not be checked.', 'Ask for its status.');
+                }
+                var d = res && res.structuredContent;
+                if (!d) throw new Error('no state');
+                state.fails = 0;                       // reached it — start the blip count over
+                if (d.status === 'success') return setDone(d);
+                if (d.done || d.status === 'error' || d.status === 'failed') {
+                    return fail(
+                        d.error || 'The generation did not finish.',
+                        d.refunded ? 'Your coins were refunded.' : ''
+                    );
+                }
+                setWaiting(d.progress, d.wait_label, d.model);
+                state.timer = setTimeout(poll, d.poll_after_ms || 3000);
+            })
+            .catch(function () {
+                /* A blip is not a failure — back off and keep trying, up to a
+                 * point. Ten minutes of SILENCE is a failure worth reporting.
+                 *
+                 * Counted as CONSECUTIVE failures, which is what "silence"
+                 * means. It used to test state.tries, incremented on every poll
+                 * including all the successful ones, so the threshold was really
+                 * "this generation has been watched for a while" — a job past
+                 * 200 polls died on its first hiccup, and the comment describing
+                 * ten minutes of silence described something the code did not
+                 * do. At 5s a retry, 120 consecutive misses IS ten minutes. */
+                state.fails++;
+                if (state.fails > 120) {
+                    return fail('Lost contact with the generation.', 'Ask for its status.');
+                }
+                state.timer = setTimeout(poll, 5000);
+            })
+            .then(function () { state.polling = false; }, function () { state.polling = false; });
+    }
+
+    /* ── host → view ──────────────────────────────────────────────────── */
+    addEventListener('message', function (e) {
+        var m = e.data;
+        if (!m || m.jsonrpc !== '2.0') return;
+
+        if (m.id !== undefined && pending.has(m.id)) {
+            var p = pending.get(m.id);
+            pending.delete(m.id);
+            return m.error ? p.reject(new Error(m.error.message || 'error')) : p.resolve(m.result);
+        }
+
+        if (m.method === 'ui/notifications/tool-result') {
+            var d = (m.params && m.params.structuredContent) || {};
+            state.id = d.id || state.id;
+            /* model_name, not model: the latter is the database key
+             * (Flux_schnell_t2i) the agent needs for chaining, and a person
+             * should never be shown it. The card used to print it for the whole
+             * wait and then swap to the real name on completion, so one
+             * generation appeared to change model halfway. Falls back, so an
+             * older server still labels the card with something. */
+            var label = d.model_name || d.model;
+            if (label) el('title').textContent = label;
+            setIcon(d.model_icon);
+            if (d.status === 'success') return setDone(d);
+
+            /* A submit that FAILED renders a card too — the view is attached to
+             * the tool at list time, not to the result — so the two cases below
+             * have to end the card here. Without them it fell through to
+             * setWaiting()+poll(), and poll() returns on its first line when
+             * there is no id, so no timer was ever set and the card stayed at
+             * "checking…" for good over a generation that never existed.
+             *
+             * The second case is the belt to the first's braces: the server
+             * sends status:'error' on every failure now, but whether a host
+             * forwards structuredContent on an isError result is up to the host.
+             * No id and no success means there is nothing to poll either way. */
+            if (d.done || d.status === 'error' || d.status === 'failed') {
+                return fail(
+                    d.error || 'The generation did not finish.',
+                    d.refunded ? 'Your coins were refunded.' : ''
+                );
+            }
+            if (!(d.id || state.id)) {
+                return fail('The generation did not start.', d.error || '');
+            }
+
+            /* "checking…", not "about 16s".
+             *
+             * The host replays this notification every time the conversation is
+             * reopened, and it carries the ORIGINAL submit — which said
+             * processing, because that is what it said when it was new. So a
+             * generation finished days ago reopened as a card counting down 16
+             * seconds, until the first poll came back and replaced it with the
+             * image. For those few seconds the user is shown something that is
+             * not true, and the honest thing to say is that we are finding out.
+             *
+             * The estimate is still worth showing — but only once polling has
+             * confirmed the job really is running, which setWaiting does with
+             * the label the state tool returns. */
+            setWaiting(null, 'checking…', label);
+            poll();
+        }
+    });
+
+    /* ── playing the video where the user is looking ───────────────────── */
+
+    /**
+     * Swap the poster for the real file and start it, inside the card.
+     *
+     * Allowed by the card's own CSP: _meta.ui.csp.resourceDomains maps to
+     * media-src as well as img-src (MCP Apps spec, apps.mdx), and the output
+     * and its poster come from the SAME host — measured — and that host is
+     * matched by the declared https://*.r2.cloudflarestorage.com. The poster
+     * already renders from it,
+     * which is the proof the origin passes.
+     *
+     * play() is called inside the click handler, never outside one: a gesture
+     * is what the autoplay policy requires, and a promise rejection here means
+     * the browser refused, not that the file is bad — so the controls stay and
+     * the user can press the native button.
+     */
+    function playInline() {
+        if (!state.url) return;
+        var v = el('vid');
+
+        /* Already loaded. Resume or replay in place — do NOT re-assign src,
+           which would throw away the buffered file and restart the download.
+           Without this branch the footer Play button was dead once a clip
+           ended: state.playing stayed true and every press did nothing. */
+        if (state.playing) {
+            if (v.paused) { var again = v.play(); if (again && again.catch) again.catch(function () {}); }
+            return;
+        }
+        state.playing = true;
+
+        /* Keep the poster frame under the video while it buffers, so the stage
+           never flashes black between the click and the first frame. */
+        if (state.poster) v.poster = state.poster;
+        v.src = state.url;
+
+        /* A signed url expires in eight hours; a card read the next morning
+           gets a media error, not a file. Say so, and offer the route that
+           still works rather than leaving a dead frame. */
+        v.onerror = function () {
+            state.playing = false;
+            v.hidden = true;
+            v.removeAttribute('src');
+            el('shot').hidden = !state.poster;
+            el('play').hidden = false;
+            el('stageNote').textContent = 'Could not play here — the link may have expired. Use Download or Open on Vidofy.';
+            el('stageNote').hidden = false;
+            reportSize();
+        };
+
+        el('shot').hidden = true;
+        el('play').hidden = true;
+        el('stageNote').hidden = true;
+        v.hidden = false;
+        reportSize();
+
+        var p = v.play();
+        /* Older engines return undefined instead of a promise. */
+        if (p && typeof p.catch === 'function') {
+            p.catch(function () {
+                /* Refused (policy, or a codec it will not start on its own).
+                   The element and its controls stay — pressing play on them is
+                   a second gesture, which is exactly what a refusal wants. */
+            });
+        }
+    }
+
+    /* ── view → host: the three documented actions ─────────────────────── */
+    /* For a video the primary button plays here; the external routes are
+       Download and Open on Vidofy, which are their own buttons. For an image
+       there is nothing to play, so it opens full size as before. */
+    el('bOpen').onclick = function () {
+        if (!state.url) return;
+        if (state.isVideo) { playInline(); return; }
+        call('ui/open-link', { url: state.url });
+    };
+    el('play').onclick = playInline;
+    el('shot').onclick = function () { if (state.isVideo) playInline(); };
+
+    /* Download asks for a FRESH link at the moment of the click.
+     *
+     * Both urls are presigned and both expire — the viewing one in eight hours,
+     * the download one in ten minutes, because a link that writes a file to
+     * disk is a worse thing to leave lying around. The card was handing over
+     * whichever url it happened to be holding, so a user who read the reply and
+     * clicked a while later got R2's XML expiry error instead of their file.
+     *
+     * One extra round trip, only when the button is pressed. If it fails, fall
+     * back to the held url rather than doing nothing — an expired link that
+     * shows an error is still better than a button that ignores you. */
+    el('bDownload').onclick = function () {
+        if (!state.id) return;
+        var btn = el('bDownload');
+        if (btn.disabled) return;                       // ignore a second click
+        /* Say what is happening. The fresh-link round trip goes host → server →
+         * Vidofy → R2 and back, so it is sometimes instant and sometimes a
+         * second or two — and a button that looks unchanged for two seconds
+         * reads as a button that did not work, which is when people click it
+         * again. */
+        btn.disabled = true;
+        var was = btn.textContent;
+        btn.textContent = 'Preparing…';
+        call('tools/call', { name: 'generation_card_state', arguments: { id: state.id } })
+            .then(function (res) {
+                var fresh = res && res.structuredContent && res.structuredContent.download_url;
+                if (fresh) state.download = fresh;
+            })
+            .catch(function () { /* keep whatever we already had */ })
+            .finally(function () {
+                btn.disabled = false;
+                btn.textContent = was;
+                if (state.download) call('ui/open-link', { url: state.download });
+            });
+    };
+
+    el('bVidofy').onclick = function () {
+        if (state.vidofy) call('ui/open-link', { url: state.vidofy });
+    };
+    // Opens the pricing page. Deliberately NOT a download: the clean file is
+    // gated on the site (the download route refuses a free account and
+    // redirects here), and a button that quietly produced it would be the
+    // gate's hole.
+    el('bClean').onclick = function () {
+        if (state.pricing) call('ui/open-link', { url: state.pricing });
+    };
+    el('bReuse').onclick = function () {
+        call('ui/message', { role: 'user', content: [{ type: 'text',
+            text: 'Use generation ' + state.id + ' as the input image for the next generation.' }] });
+    };
+    el('bReprompt').onclick = function () {
+        call('ui/message', { role: 'user', content: [{ type: 'text',
+            text: 'Generate this again with a different prompt — the previous one was ' + state.id + '.' }] });
+    };
+
+    /* ── handshake, in the order the spec requires ─────────────────────── */
+    call('ui/initialize', {
+        protocolVersion: '2026-01-26',
+        capabilities: {},
+        clientInfo: { name: 'Vidofy generation card', version: '1.0.0' }
+    }).then(function (res) {
+        // Adopt the host's palette so the card belongs to the conversation.
+        var vars = res && res.hostContext && res.hostContext.styles && res.hostContext.styles.variables;
+        if (vars) {
+            Object.keys(vars).forEach(function (k) {
+                document.documentElement.style.setProperty(
+                    k.charAt(0) === '-' ? k : '--' + k, String(vars[k])
+                );
+            });
+        }
+
+        /* Respect a ceiling if the host names one. A tall portrait image would
+         * otherwise ask for a frame taller than the pane allows, and the host
+         * decides how to reconcile that — better to keep the picture inside the
+         * card and let it scroll than to find out. */
+        /* Tighten the stage's ceiling if the host's pane is shorter than the
+         * card would like. maxHeight, not height: the stage is sized by its
+         * 16:9 ratio now, and setting a height would override that and stretch
+         * or squash it. 96px is the header and footer around it; 160 is the
+         * floor below which a picture stops being worth showing. */
+        var dims = res && res.hostContext && res.hostContext.containerDimensions;
+        if (dims && typeof dims.maxHeight === 'number' && dims.maxHeight > 0) {
+            // The stage's only ceiling, and it comes from the host rather than
+            // from a number picked here. 96px is the header and footer around
+            // it; 160 is the floor below which a picture stops being worth
+            // showing at all.
+            el('stage').style.maxHeight = Math.max(160, dims.maxHeight - 96) + 'px';
+        }
+    }).catch(function () { /* a host that answers nothing still gets the fallbacks */ })
+      .finally(function () {
+        // The host MUST NOT send anything before this, so it goes last.
+        notify('ui/notifications/initialized', {});
+        reportSize();
+    });
+})();
+</script>
+</body>
+</html>

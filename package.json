@@ -1,0 +1,78 @@
+{
+  "name": "@vidofy/mcp",
+  "version": "0.1.0",
+  "description": "Browse Vidofy's AI models, price a generation before running it, and follow one to its result, from Claude, Cursor, or any MCP client — billed to your own Vidofy account.",
+  "mcpName": "ai.vidofy/mcp",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "vidofy-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "default": "./dist/config.js"
+    },
+    "./backend": {
+      "types": "./dist/backend.d.ts",
+      "default": "./dist/backend.js"
+    },
+    "./map": {
+      "types": "./dist/map/b2c.d.ts",
+      "default": "./dist/map/b2c.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "README.md",
+    "server.json"
+  ],
+  "scripts": {
+    "build": "tsc && node build/copy-ui.mjs",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "inspect": "npm run build && npx --yes @modelcontextprotocol/inspector node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "redis": "^5.12.1",
+    "zod": "^3.25.0",
+    "zod-to-json-schema": "^3.25.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  },
+  "keywords": [
+    "mcp",
+    "modelcontextprotocol",
+    "vidofy",
+    "ai",
+    "image-generation",
+    "video-generation",
+    "text-to-speech"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vidofy/mcp.git"
+  },
+  "homepage": "https://vidofy.ai",
+  "bugs": {
+    "url": "https://github.com/vidofy/mcp/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
