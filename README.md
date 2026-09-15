@@ -1,8 +1,9 @@
 # @vidofy/mcp
 
 [![npm](https://img.shields.io/npm/v/@vidofy/mcp?color=cb3837&logo=npm)](https://www.npmjs.com/package/@vidofy/mcp)
-[![node](https://img.shields.io/node/v/@vidofy/mcp)](https://nodejs.org)
-[![licence](https://img.shields.io/npm/l/@vidofy/mcp?color=blue)](./LICENSE)
+[![node](https://img.shields.io/badge/node-%E2%89%A518-5fa04e?logo=node.js&logoColor=white)](https://nodejs.org)
+[![licence](https://img.shields.io/badge/licence-MIT-blue)](./LICENSE)
+[![MCP](https://img.shields.io/badge/Model_Context_Protocol-server-6f42c1)](https://modelcontextprotocol.io)
 
 **MCP server for [Vidofy](https://vidofy.ai)** — generate images, video, audio and speech from
 Claude Desktop, Cursor, or any MCP client, **billed to your own Vidofy account**, at the same
@@ -56,25 +57,28 @@ Nothing in this package can buy coins or change a plan, however it is prompted.
 
 Create a personal MCP token at **vidofy.ai → Studio → Account → MCP Access**. It is shown once.
 
-Until the package is on npm, point your client at a local build (`npm install && npm run build`):
+Then add the server to your client. Nothing to install — `npx` fetches it on first run:
 
 ```jsonc
-// claude_desktop_config.json
+// claude_desktop_config.json   (Cursor: .cursor/mcp.json — same shape)
 {
   "mcpServers": {
     "vidofy": {
-      "command": "node",
-      "args": ["/absolute/path/to/vidofy-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@vidofy/mcp"],
       "env": { "VIDOFY_TOKEN": "vmt_..." }
     }
   }
 }
 ```
 
-Once it is published, that becomes:
+Restart the client. Ask it to *"list Vidofy modes"* to confirm the connection, then
+*"make me a 5-second clip of a red bicycle"* — it will price it before it runs it.
+
+Prefer a pinned copy? `npm i -g @vidofy/mcp`, then:
 
 ```jsonc
-{ "command": "npx", "args": ["-y", "@vidofy/mcp"], "env": { "VIDOFY_TOKEN": "vmt_..." } }
+{ "command": "vidofy-mcp", "env": { "VIDOFY_TOKEN": "vmt_..." } }
 ```
 
 ### Environment
@@ -82,7 +86,7 @@ Once it is published, that becomes:
 | Variable | Required | What it does |
 |---|---|---|
 | `VIDOFY_TOKEN` | **yes** | Personal MCP token (`vmt_…`). Spends **your own Vidofy coins**, exactly as the studio does. |
-| `VIDOFY_API_BASE` | no | Override the origin the server talks to. Defaults to `https://vidofy.ai/en/api`, which is what you want. |
+| `VIDOFY_API_BASE` | no | Override the origin the server talks to — an **origin only**, no path. Defaults to `https://vidofy.ai`, which is what you want. |
 
 `VIDOFY_API_KEY` is recognised only in order to be **refused**: a `vky_…` key bills a
 different balance, which this server does not serve. Setting it stops startup with a message
