@@ -29,8 +29,30 @@
 html,body{margin:0;padding:0;background:transparent}
 body{font-family:var(--font-sans);color:var(--color-text-primary);font-size:13px}
 
-.card{border:1px solid var(--color-border);border-radius:12px;overflow:hidden;
-      background:var(--color-background-primary)}
+/* NO OUTER BORDER AND NO OUTER RADIUS — the host already draws both.
+ *
+ * This used to be `border:1px solid var(--color-border);border-radius:12px`, and
+ * the result was a border drawn on top of a border. The host frames the widget
+ * itself — in Claude it is a hairline rounded box with "Widget from vidofy
+ * generate" written above it — and its radius is NOT 12px. Two rounded corners
+ * of different radii nested a pixel apart is not a border, it is a seam, and it
+ * showed at every corner of every card.
+ *
+ * Guessing the host's radius would not fix it either: the next host has another
+ * one, and a value copied from a screenshot is wrong the day the host restyles.
+ * The only frame that can always be right is the one the host draws, so the card
+ * draws none and fills what it is given.
+ *
+ * Safe because the host MUST clip the iframe it rounds: the iframe is a
+ * rectangle whatever we paint inside it, so a host that rounded a wrapper
+ * without clipping would already show square corners for every widget, ours
+ * included. Its clip is what gives this content its corners.
+ *
+ * overflow:hidden stays — it keeps the stage and the media inside the card's
+ * box. The head's border-bottom and the foot's border-top stay too: those are
+ * internal dividers, and they are what still reads as a card once the outer
+ * line is gone. */
+.card{overflow:hidden;background:var(--color-background-primary)}
 .head{display:flex;align-items:center;gap:8px;padding:10px 12px;
       border-bottom:1px solid var(--color-border)}
 /* The provider's logo. Falls back to a neutral mark when the model has no
@@ -283,7 +305,149 @@ body{font-family:var(--font-sans);color:var(--color-text-primary);font-size:13px
                   // isVideo/poster decide what a click on the stage does;
                   // playing guards against a second click restarting the file.
                   isVideo: false, poster: '', playing: false,
-                  url: '', download: '', vidofy: '' };
+                  url: '', download: '', vidofy: '',
+                  /* True only while the card is showing a picture restored from
+                   * the cache below, with a revalidation already in flight. It
+                   * changes one behaviour: a failed <img> must NOT be reported as
+                   * "the preview link expired", because the fresh answer is
+                   * seconds away and it is the one that knows. */
+                  fromCache: false };
+
+    /* ── remembering a finished generation ────────────────────────────────
+     *
+     * WHY THERE IS A CACHE AT ALL. The host replays the ORIGINAL tool result
+     * every time the conversation is reopened, and that payload says
+     * `processing` — it is what the submit said when it was new. So a card whose
+     * generation finished days ago reopens as a card that is checking, and the
+     * picture only returns after a round trip. With several cards in a
+     * conversation, every one of them makes that trip on every reopen.
+     *
+     * WHAT IS KEPT, AND WHAT IS DELIBERATELY NOT.
+     *
+     * A finished generation has two kinds of field, and only one of them keeps:
+     *
+     *   the facts   model, dimensions, coins, how long it took, watermarked,
+     *               its page on the site — none of these can go stale.
+     *   the links   these EXPIRE, and at two very different rates.
+     *
+     * Measured on this project's own builders:
+     *   · a public CDN url (every free account's output, because the submit
+     *     handler forces m_public='on' below u_pro 2)  — never expires
+     *   · a private signed url (a subscriber's clean file)   — about 8 hours
+     *   · download_url                                        — TEN MINUTES
+     *
+     * So download_url is dead on EVERY reopen without exception: the card would
+     * show a Download button that errors when pressed. It is never stored.
+     *
+     * And no signed url is stored either — owner decision, option (أ), 2026-09-16.
+     * Storing one with its expiry alongside would buy a subscriber an instant
+     * picture for eight hours, at the price of leaving a url carrying
+     * X-Amz-Credential — the R2 access key id — sitting in the viewer's storage
+     * after it has stopped working. The facts are cached for them regardless, so
+     * their card still opens filled in; only the picture waits for one trip.
+     *
+     * A link is self-identifying, which is why no new server field was needed:
+     * a presigned url carries X-Amz-Signature in its query string, and a plain
+     * CDN url does not. mapResult already leans on exactly this to word its
+     * url_note.
+     *
+     * THE CACHE IS FOR SPEED, NEVER FOR TRUTH. Every restore is followed by a
+     * revalidation, because even a permanent link can stop being true: the
+     * retention cron removes the file after 30 days (180 for a subscriber) and
+     * leaves the row, so a "permanent" url starts answering 404. The fresh answer
+     * always wins, and a restored picture that fails to load says nothing —
+     * see state.fromCache above. */
+    var CACHE_PREFIX = 'vidofy.card.';
+    /* Well inside the SHORTEST retention window (30 days), so an entry is
+     * normally still backed by a file that exists. Beyond a week a reopen is
+     * rare, and the revalidation covers it anyway. */
+    var CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+    var CACHE_MAX_ENTRIES = 40;
+
+    function isSignedUrl(u) {
+        return typeof u === 'string' && /[?&]X-Amz-Signature=/i.test(u);
+    }
+
+    /* Every access is wrapped. localStorage is not guaranteed here: the host
+     * decides the iframe's sandbox flags, and a frame without allow-same-origin
+     * throws on the mere mention of it — not on use, on ACCESS. A throw that
+     * escaped would take the whole card down, so a host that forbids storage
+     * simply gets today's behaviour back. */
+    function cacheRead(id) {
+        if (!id) return null;
+        try {
+            var raw = window.localStorage.getItem(CACHE_PREFIX + id);
+            if (!raw) return null;
+            var e = JSON.parse(raw);
+            if (!e || !e.at || Date.now() - e.at > CACHE_MAX_AGE_MS) {
+                try { window.localStorage.removeItem(CACHE_PREFIX + id); } catch (_) {}
+                return null;
+            }
+            return e.d || null;
+        } catch (_) { return null; }
+    }
+
+    function cacheWrite(id, d) {
+        if (!id || !d) return;
+        try {
+            var o = {}, k;
+            for (k in d) { if (Object.prototype.hasOwnProperty.call(d, k)) o[k] = d[k]; }
+            o.download_url = null;                              // ten minutes — see above
+            if (isSignedUrl(o.url)) o.url = null;
+            if (isSignedUrl(o.poster_url)) o.poster_url = null;
+            window.localStorage.setItem(CACHE_PREFIX + id, JSON.stringify({ at: Date.now(), d: o }));
+            cachePrune();
+        } catch (_) { /* full, forbidden, private window — the card does not care */ }
+    }
+
+    /* Oldest-first, and only our own keys. Without this the quota fills with
+     * generations nobody will reopen, and the browser starts refusing writes
+     * for the ones somebody will. */
+    function cachePrune() {
+        try {
+            var mine = [], i, k, e;
+            for (i = 0; i < window.localStorage.length; i++) {
+                k = window.localStorage.key(i);
+                if (k && k.indexOf(CACHE_PREFIX) === 0) {
+                    try { e = JSON.parse(window.localStorage.getItem(k)); } catch (_) { e = null; }
+                    mine.push({ k: k, at: (e && e.at) || 0 });
+                }
+            }
+            if (mine.length <= CACHE_MAX_ENTRIES) return;
+            mine.sort(function (a, b) { return a.at - b.at; });
+            mine.slice(0, mine.length - CACHE_MAX_ENTRIES).forEach(function (x) {
+                try { window.localStorage.removeItem(x.k); } catch (_) {}
+            });
+        } catch (_) {}
+    }
+
+    /* The facts, with no picture — what a subscriber's card shows the instant it
+     * reopens, while the fresh signed link is on its way.
+     *
+     * It is not setDone(): that would fall through to "No preview frame for this
+     * result", which is a sentence about the GENERATION, and here the generation
+     * is fine — only the link was not kept. The stage keeps its spinner and says
+     * so, and the poll already in flight fills it.
+     *
+     * state.done stays false on purpose, so nothing here is mistaken for a final
+     * render. */
+    function paintChrome(d) {
+        if (d.model) el('title').textContent = d.model;
+        el('pill').textContent = 'done';
+        el('pill').className = 'pill';
+        el('note').textContent = 'loading the preview…';
+        el('bVidofy').hidden = !d.vidofy_url;
+        state.vidofy = d.vidofy_url || '';
+        el('bReuse').hidden = !(d.id && d.media_type !== 'video');
+        el('bReprompt').hidden = !d.id;
+        var bits = [];
+        if (d.credits !== null && d.credits !== undefined) bits.push(d.credits + ' coins');
+        if (d.dimensions) bits.push(d.dimensions);
+        if (d.duration_label) bits.push(d.duration_label);
+        state.bits = bits;
+        renderMeta();
+        reportSize();
+    }
 
     /* ── rendering ────────────────────────────────────────────────────── */
 
@@ -425,6 +589,13 @@ body{font-family:var(--font-sans);color:var(--color-text-primary);font-size:13px
                say so rather than showing a broken frame. */
             img.onerror = function () {
                 img.hidden = true;
+                /* Unless the link came off this machine's disk. A restored
+                   picture says nothing when it fails: a revalidation is already
+                   in flight, and it is the one that knows whether the file is
+                   gone (the retention cron removes it and leaves the row) or the
+                   link merely went stale. Reporting here would flash a failure
+                   over a card that is about to repair itself. */
+                if (state.fromCache) return;
                 fail('The preview link expired.', 'The file is fine — use Open or Download.');
             };
             el('play').hidden = !isVideo;
@@ -503,6 +674,15 @@ body{font-family:var(--font-sans);color:var(--color-text-primary);font-size:13px
         state.bits = bits;
         renderMeta();
         reportSize();
+
+        /* Remember it, so the next reopen paints instead of asking.
+         *
+         * Written on EVERY setDone, the one that restored from the cache a
+         * moment ago included — the stripping is idempotent, so rewriting the
+         * same entry changes nothing but its age, and that is the honest thing
+         * for it to record. The write that matters is the revalidation's, which
+         * replaces a remembered entry with what the server has just said. */
+        cacheWrite(d.id || state.id, d);
     }
 
     /** Seconds as "47s" / "3m 54s" — the spelling cardState uses server-side.
@@ -574,8 +754,13 @@ body{font-family:var(--font-sans);color:var(--color-text-primary);font-size:13px
        host to the server, which is where the token already lives. The tool is
        registered app-only, so the model never sees these calls and waiting
        costs no tokens. */
-    function poll() {
-        if (state.done || !state.id) return;
+    function poll(force) {
+        /* `force` is the revalidation after a cache restore, and it is the one
+         * caller allowed past state.done. Without it the restore would be the
+         * last word: setDone sets state.done, this line returns, and a
+         * generation whose file was since deleted would keep showing a picture
+         * that no longer loads. The cache is for speed, the network for truth. */
+        if ((state.done && !force) || !state.id) return;
         /* One in flight at a time. Both the host notification and a pending
          * timer can call this, and a slow round trip used to let a second start
          * on top of the first — two chains of setTimeout from then on, each
@@ -596,6 +781,11 @@ body{font-family:var(--font-sans);color:var(--color-text-primary);font-size:13px
                 var d = res && res.structuredContent;
                 if (!d) throw new Error('no state');
                 state.fails = 0;                       // reached it — start the blip count over
+                /* This payload came off the network, so the card stops being a
+                 * restored one: from here a broken <img> is a real failure and is
+                 * reported as such. Cleared here rather than inside setDone,
+                 * which is also the function the restore itself calls. */
+                state.fromCache = false;
                 if (d.status === 'success') return setDone(d);
                 if (d.done || d.status === 'error' || d.status === 'failed') {
                     return fail(
@@ -685,6 +875,33 @@ body{font-family:var(--font-sans);color:var(--color-text-primary);font-size:13px
              * The estimate is still worth showing — but only once polling has
              * confirmed the job really is running, which setWaiting does with
              * the label the state tool returns. */
+            /* Reopened, and we have seen this generation finish before.
+             *
+             * Paint what was kept, then revalidate. Which of the two paints runs
+             * depends on what survived the cache's own rule above:
+             *
+             *   a kept link  — a permanent CDN url, i.e. every free account's
+             *                  output. The card is complete instantly, except
+             *                  for Download, whose ten-minute link is never kept
+             *                  and whose button therefore stays hidden until the
+             *                  revalidation lands one.
+             *   no link      — a subscriber's clean file, whose url was signed
+             *                  and deliberately not kept. The facts appear at
+             *                  once and only the picture waits.
+             *
+             * Either way poll(true) goes out, and its answer overrides this. */
+            var remembered = cacheRead(d.id || state.id);
+            if (remembered) {
+                if (remembered.url || remembered.poster_url) {
+                    state.fromCache = true;
+                    setDone(remembered);
+                } else {
+                    paintChrome(remembered);
+                }
+                poll(true);
+                return;
+            }
+
             setWaiting(null, 'checking…', label);
             poll();
         }
