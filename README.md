@@ -6,8 +6,8 @@
 [![MCP](https://img.shields.io/badge/Model_Context_Protocol-server-6f42c1)](https://modelcontextprotocol.io)
 
 **MCP server for [Vidofy](https://vidofy.ai)** — generate images, video, audio and speech from
-Claude Desktop, Cursor, or any MCP client, **billed to your own Vidofy account**, at the same
-prices the website charges.
+Claude, ChatGPT, VS Code, Gemini CLI, Cursor, Hermes, or any MCP client, **billed to your own
+Vidofy account**, at the same prices the website charges.
 
 Over 570 models, including **Veo 3.1**, **Kling 3.0**, **Flux 2**, **Seedance 2.5**, **Wan 2.7**,
 **Hailuo 2.3**, **Runway**, **Luma Ray 2**, **Qwen Image 3.0**, **Vidu Q3** and **LTX 2** —
@@ -15,7 +15,7 @@ text-to-video, image-to-video, text-to-image, image editing, video and photo eff
 text-to-speech and voice cloning. The agent browses the catalogue, prices a generation before
 running it, and follows one to its result.
 
-> **Status: v0.1.0, the first public release.**
+> **Status: first public release.**
 >
 > **This server is for personal Vidofy accounts.** It takes one credential,
 > `VIDOFY_TOKEN`, and spends **your own coins** — the same balance the website
@@ -72,12 +72,21 @@ config file, and nothing to update when this package changes.
 |---|---|
 | **Claude.ai** · **Claude Desktop** | Settings → Connectors → *Add custom connector* → paste the URL → **Connect**, then approve the sign-in. They share one list: add it in either and it appears in both. Available on every plan, including Free — where you get one connector. |
 | **ChatGPT** | Settings → Connectors → add a custom connector (no such option? turn on Developer Mode in Settings first) → paste the URL → **Connect**, then approve. On a Business or Enterprise workspace an administrator adds it for everyone. |
+| **VS Code** | Add an MCP server of type `http` with the URL above, then approve the sign-in in your browser. VS Code identifies itself with its own published client metadata, so there is nothing to register and no client secret to obtain. |
 | **Claude Code** · **Codex** · **Cursor** | Each accepts a remote MCP server URL. Follow that client's own MCP documentation and give it the URL above. |
 
 Then ask it: *"list Vidofy modes"* to confirm the connection, and
 *"make me a 5-second clip of a red bicycle"* — it prices the generation before running it.
 
-### 2. Local stdio server — for a client that only speaks stdio
+**Some clients cannot take this route, and it is worth knowing why before you try.** Signing in
+here needs a client that identifies itself with a **published metadata document** — an https URL
+the authorization server fetches. Clients that instead expect to **register themselves** at a
+`registration_endpoint`, or to be handed a `client_id` and `client_secret` you created by hand,
+have nothing to work with: this server issues neither. **Gemini CLI** and **Hermes** are both in
+that group today. Take route 2 — it is not a lesser path, just a different way of proving who
+you are.
+
+### 2. Local stdio server — works with every client here
 
 Create a personal MCP token at **vidofy.ai → Studio → Account → MCP Access**. It is shown once.
 
@@ -100,8 +109,53 @@ Create a personal MCP token at **vidofy.ai → Studio → Account → MCP Access
 { "command": "vidofy-mcp", "env": { "VIDOFY_TOKEN": "vmt_..." } }
 ```
 
+**The entry is the same everywhere — the file it goes in, and what the outer key is called,
+are not.** Check yours against your client's own documentation before you paste:
+
+| Client | File | Outer key |
+|---|---|---|
+| Claude Desktop | `claude_desktop_config.json` | `mcpServers` |
+| Cursor | `.cursor/mcp.json` | `mcpServers` |
+| Gemini CLI | `settings.json`, user-level or per project | `mcpServers` |
+| VS Code | `.vscode/mcp.json`, or the user-profile `mcp.json` | **`servers`** — and each entry adds `"type": "stdio"` |
+| Hermes | `config.yaml` in the Hermes home directory | `mcp_servers` — **YAML**, not JSON |
+
+So VS Code wants:
+
+```jsonc
+// .vscode/mcp.json
+{
+  "servers": {
+    "vidofy": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@vidofy/mcp"],
+      "env": { "VIDOFY_TOKEN": "vmt_..." }
+    }
+  }
+}
+```
+
+and Hermes wants the same thing in YAML:
+
+```yaml
+mcp_servers:
+  vidofy:
+    command: npx
+    args: ["-y", "@vidofy/mcp"]
+    env:
+      VIDOFY_TOKEN: "vmt_..."
+```
+
 Both paths reach the same account, the same models and the same balance. The difference is
 only where the process runs and how you prove who you are.
+
+**One client shows more than the others.** A generation normally comes back as text the model
+reads out. A host that supports **MCP Apps** gets a live card instead — the picture or clip
+itself, its progress while it runs, and a download button — and the server offers it only to a
+host that says it can render one. Claude and **VS Code** both do (in VS Code, turn on
+`chat.mcp.apps.enabled`). Everywhere else the same result arrives as text and, for an image,
+an inline picture. Nothing is missing; it is just quieter.
 
 ### Environment
 

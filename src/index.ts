@@ -434,6 +434,21 @@ function registerTools(server: Server, cfg: Config): void {
             : [],
     }));
 
+    /* Always empty — every resource this server exposes has a fixed URI, so
+     * there is no template to parameterise.
+     *
+     * It is answered rather than left out because declaring the `resources`
+     * capability is what makes a client ask. Measured against VS Code 1.136.1:
+     * its client calls resources/templates/list for any server whose
+     * capability bit is set, and without this handler the reply is
+     * -32601 Method not found. The client catches it, so nothing breaks —
+     * but it lands in its MCP log as a server error, and a reader debugging a
+     * real problem has to rule it out first. One honest empty answer is
+     * cheaper than that. */
+    server.setRequestHandler('resources/templates/list', async () => ({
+        resourceTemplates: [],
+    }));
+
     server.setRequestHandler('tools/call', async (req, ctx) => {
         const tool = tools.find((t) => t.name === req.params.name);
         if (!tool) {

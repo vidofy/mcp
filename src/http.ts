@@ -353,7 +353,15 @@ function bearerToken(req: IncomingMessage): string {
  * It DOES carry `resource_metadata` — an earlier version of this comment said the
  * omission was deliberate "until OAuth exists", and OAuth exists.
  */
-function unauthorized(res: ServerResponse, message: string, resourceMetadata?: string): void {
+function unauthorized(
+    res: ServerResponse,
+    message: string,
+    resourceMetadata?: string,
+    /* The request, only so the body can be chosen for a browser. Optional because
+       nothing about the 401 depends on it — omit it and the JSON body is served,
+       which is the behaviour every caller had before this parameter existed. */
+    req?: IncomingMessage
+): void {
     /* The header is FIXED and the explanation goes in the body only.
      *
      * Interpolating `message` here threw on the very first request and answered
@@ -411,11 +419,34 @@ function unauthorized(res: ServerResponse, message: string, resourceMetadata?: s
         return safe ? encoded : null;
     })();
 
+    const challenge = 'Bearer error="invalid_token"'
+        + (safeMetadata !== null ? `, resource_metadata="${safeMetadata}"` : '')
+        + ', scope="vidofy.generate"';
+
+    /* A person who pasted the URL into a browser gets the SAME 401 and the SAME
+     * challenge header — only the body changes.
+     *
+     * Status and header are deliberately untouched: they are what makes this a
+     * discoverable resource (RFC 9728), and a client that finds 200-and-a-page
+     * here has no authorization server to go to. Content negotiation on the body
+     * alone cannot affect that.
+     *
+     * Worth doing at all because the setup page hands this URL out under a Copy
+     * button, so somebody will put it in an address bar rather than a config
+     * file. Measured on two competing connectors: both answer a bare JSON error
+     * there, which reads as "broken" to the person who mis-pasted it. */
+    if (req !== undefined && wantsHtml(req)) {
+        res.writeHead(401, {
+            'content-type': 'text/html; charset=utf-8',
+            'www-authenticate': challenge,
+        });
+        res.end(BROWSER_NOTICE);
+        return;
+    }
+
     res.writeHead(401, {
         'content-type': 'application/json; charset=utf-8',
-        'www-authenticate': 'Bearer error="invalid_token"'
-            + (safeMetadata !== null ? `, resource_metadata="${safeMetadata}"` : '')
-            + ', scope="vidofy.generate"',
+        'www-authenticate': challenge,
     });
     res.end(JSON.stringify({
         jsonrpc: '2.0',
@@ -423,6 +454,63 @@ function unauthorized(res: ServerResponse, message: string, resourceMetadata?: s
         id: null,
     }));
 }
+
+/**
+ * True only for a request that is plainly a human in a browser.
+ *
+ * Every condition here is a way of saying "this is not a protocol client", and
+ * each one alone is enough to fall back to JSON:
+ *
+ *   • no `text/html` in Accept        — curl sends `*​/*` and gets JSON, as before
+ *   • `application/json` present      — an MCP client asks for it explicitly
+ *   • `text/event-stream` present     — streamable HTTP opens its stream with GET
+ *   • `mcp-protocol-version` present  — only a client sends this
+ *   • `authorization` present         — a client that tried a token deserves the
+ *                                       machine-readable reason, not a poster
+ *
+ * The bar is high on purpose: a false positive would hand a real client HTML it
+ * cannot parse, and the failure would look like a server fault rather than a
+ * content-type mistake.
+ */
+function wantsHtml(req: IncomingMessage): boolean {
+    const accept = String(req.headers['accept'] ?? '').toLowerCase();
+    return accept.includes('text/html')
+        && !accept.includes('application/json')
+        && !accept.includes('text/event-stream')
+        && req.headers['mcp-protocol-version'] === undefined
+        && req.headers['authorization'] === undefined;
+}
+
+/**
+ * What that person sees. Self-contained by necessity — no external stylesheet,
+ * font or script, because this response is served before any authentication and
+ * should not make the browser reach anywhere else to render one sentence.
+ */
+const BROWSER_NOTICE = `<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Vidofy MCP endpoint</title>
+<style>
+  :root { color-scheme: light dark }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         padding:24px; background:#fafafa; color:#18181b;
+         font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif }
+  main { max-width:32rem }
+  h1 { font-size:1.4rem; margin:0 0 .75rem }
+  p { margin:0 0 .75rem; color:#52525b }
+  a { color:#db2777; font-weight:600 }
+  @media (prefers-color-scheme: dark) {
+    body { background:#09090b; color:#fafafa } p { color:#a1a1aa } a { color:#f472b6 }
+  }
+</style>
+<main>
+  <h1>This is an MCP endpoint, not a web page.</h1>
+  <p>There is nothing here to read. Paste this URL into the AI client you want to
+     generate from — it will open a Vidofy sign-in in your browser and take it from there.</p>
+  <p><a href="https://vidofy.ai/en/mcp">Setup for every client &rarr;</a></p>
+</main>
+`;
 
 /** Serve a discovery document as JSON. */
 function sendJson(res: ServerResponse, body: unknown): void {
@@ -578,7 +666,8 @@ async function handle(req: IncomingMessage, res: ServerResponse, version: string
         unauthorized(
             res,
             err instanceof ConfigError ? err.message : 'Authentication failed.',
-            `${origin}/.well-known/oauth-protected-resource${MCP_PATH}`
+            `${origin}/.well-known/oauth-protected-resource${MCP_PATH}`,
+            req
         );
         return;
     }
@@ -650,6 +739,11 @@ async function handle(req: IncomingMessage, res: ServerResponse, version: string
            are the token's fault, anything else is ours. */
         const status = err instanceof VidofyError ? err.httpStatus : null;
         if (status === 401 || status === 403) {
+            /* No `req` here, and that is not an oversight: reaching this branch
+               means a bearer token was presented and the backend rejected it, so
+               the caller is a client by construction — a browser address bar
+               sends no Authorization header. Passing it would add a parameter
+               that provably cannot change the outcome. */
             unauthorized(
                 res,
                 'This token is not valid for this connector. It may have been revoked, '
