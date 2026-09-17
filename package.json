@@ -1,6 +1,6 @@
 {
   "name": "@vidofy/mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "MCP server for Vidofy — generate video, images, audio and speech from Claude, ChatGPT, Cursor or any MCP client. Veo 3.1, Kling 3.0, Flux 2, Seedance 2.5 and 570+ models, billed to your own Vidofy account.",
   "mcpName": "ai.vidofy/mcp",
   "license": "MIT",

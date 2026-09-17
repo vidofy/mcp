@@ -97,6 +97,21 @@ export function readVersion(): string {
  * whether it may call something without asking the user first. Every tool here
  * is read-only EXCEPT `generate`, which spends the user's balance and says so
  * with readOnlyHint:false and idempotentHint:false.
+ *
+ * ── `title` is a human label, and a submission requirement ──────────────────
+ * `name` is what the model calls; `title` is what a PERSON reads in a consent
+ * sheet, a permissions list, or a directory listing. A client that shows
+ * `get_result` where it could show "Get a finished result" is showing our
+ * variable names to its users.
+ *
+ * It is also a gate rather than a nicety: Anthropic's Connectors Directory
+ * requires every tool to carry "a `title` and the applicable `readOnlyHint` or
+ * `destructiveHint`", and OpenAI's plugin submission asks the same annotations
+ * to be justified per tool. We had the hints and none of the titles.
+ *
+ * Written as a label, not a sentence: verb-first, capitalised once, no trailing
+ * full stop, and short enough to survive a narrow column. The `description`
+ * beside it is for the model and stays as long as it needs to be.
  */
 /* ── MCP Apps (SEP-1865) ──────────────────────────────────────────────────
  *
@@ -196,6 +211,7 @@ function registerTools(server: Server, cfg: Config): void {
     const tools = [
         {
             name: 'list_modes',
+            title: 'List what Vidofy can make',
             description:
                 'List what Vidofy can generate — text-to-image, image-to-video, lipsync, ' +
                 'text-to-speech and so on. Start here, then call list_models with the mode code.',
@@ -205,6 +221,7 @@ function registerTools(server: Server, cfg: Config): void {
         },
         {
             name: 'list_models',
+            title: 'Browse models in a mode',
             description:
                 'List the models available in one mode, with the rough duration of each and ' +
                 'credits_from — the CHEAPEST that model can cost, for comparing models against ' +
@@ -216,6 +233,7 @@ function registerTools(server: Server, cfg: Config): void {
         },
         {
             name: 'get_model',
+            title: 'Look up one model',
             description:
                 'Everything needed to call generate on one model: a JSON Schema for its inputs, ' +
                 'which file slots it takes and their size limits, and notes the schema cannot ' +
@@ -227,6 +245,7 @@ function registerTools(server: Server, cfg: Config): void {
         },
         {
             name: 'estimate_cost',
+            title: 'Price it before spending',
             description:
                 'What a generation will cost, before running it. Pass the SAME input you will ' +
                 'pass to generate — on some models the price varies 20x with the settings. ' +
@@ -237,6 +256,10 @@ function registerTools(server: Server, cfg: Config): void {
         },
         {
             name: 'generate',
+            /* The only title that names the cost. It is the one tool a consent
+               sheet exists for, and "Generate media" would have hidden exactly
+               the fact the reader is being asked to approve. */
+            title: 'Generate media (spends credits)',
             description:
                 'Run a generation. THIS SPENDS THE USER\'S BALANCE — call estimate_cost first ' +
                 'and tell them the price. Charged when the job is submitted, not when it ' +
@@ -271,6 +294,7 @@ function registerTools(server: Server, cfg: Config): void {
         },
         {
             name: 'get_balance',
+            title: 'Check the credit balance',
             description:
                 'The account balance, and how much of it expires with the current subscription. ' +
                 'Check before a costly generation.',
@@ -280,6 +304,7 @@ function registerTools(server: Server, cfg: Config): void {
         },
         {
             name: 'get_usage',
+            title: 'Review recent generations',
             description:
                 'Recent generations and what they cost: totals for the window plus the rows ' +
                 'behind them. Use it to answer "what have I spent".',
@@ -289,6 +314,7 @@ function registerTools(server: Server, cfg: Config): void {
         },
         {
             name: 'get_status',
+            title: 'Check if it has finished',
             description:
                 'Whether a generation has finished. Returns done:true once it reaches a final ' +
                 'state, then call get_result. This call WAITS for up to 10 seconds before ' +
@@ -303,6 +329,7 @@ function registerTools(server: Server, cfg: Config): void {
         },
         {
             name: 'get_result',
+            title: 'Get the finished media',
             description:
                 'The finished media, returned as an image you can actually see — an image ' +
                 'comes back as itself, a video as its poster frame. Also gives the link: ' +
@@ -326,6 +353,11 @@ function registerTools(server: Server, cfg: Config): void {
              * poll through the host to the server keeps the credential where
              * it already is. */
             name: 'generation_card_state',
+            /* Titled like the rest even though `appOnly` keeps it out of
+               tools/list: the card calls it, a host may still name it in a
+               permissions view, and "generation_card_state" is our variable
+               name, not a thing a person should be shown. */
+            title: 'Refresh the generation card',
             description: 'Internal: current state of a generation, for the card view.',
             inputSchema: objectSchema(generationIdInput),
             annotations: { readOnlyHint: true, openWorldHint: true },
@@ -342,8 +374,15 @@ function registerTools(server: Server, cfg: Config): void {
                 // built only for it — it would be dead weight in the model's
                 // list, and one it might well try to call.
                 .filter((t) => ui || !('appOnly' in t && t.appOnly))
-                .map(({ name, description, inputSchema, annotations, ...rest }) => ({
+                .map(({ name, title, description, inputSchema, annotations, ...rest }) => ({
                     name,
+                    /* Forwarded explicitly, because this map is an ALLOW-LIST:
+                       anything not named here is dropped into `rest` and never
+                       reaches the client. Adding `title` to the table above
+                       without adding it here would have shipped a table full of
+                       titles and a wire answer with none — and the gate would
+                       have passed, since it reads the same table. */
+                    title,
                     description,
                     inputSchema,
                     annotations,
