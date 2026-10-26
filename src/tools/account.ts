@@ -100,9 +100,10 @@ export async function getUsage(
         query: { days: args.days, limit: args.limit, offset: args.offset },
     });
 
-    // Every field below has already been through the strip: usage carries
+    // Every field below has already been through the strip: usage can carry
     // aul_api_cost per row and total_api_cost in the summary, both of which are
-    // what Vidofy pays its providers.
+    // what Vidofy pays its providers. Newer servers send them to admins only;
+    // the strip covers a server that still sends them to everyone.
     const root = rec(stripProviderCost(payload));
     const d = rec(root['data']);
     const summary = rec(d['summary']);

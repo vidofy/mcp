@@ -685,10 +685,13 @@ export async function generate(
          * halves of the mechanism were built; the value joining them
          * guaranteed they would miss.
          *
-         * Derived from the model, the resolved inputs and the public flag,
-         * inside a 60-second window — see contentIdempotencyKey for why the
-         * window is part of the key rather than a nicety (the server's lookup
-         * has no time bound of its own).
+         * Derived from the model, the resolved inputs and the public flag. It
+         * deduplicates inside a 60-second window, and that window is the
+         * SERVER's: its lookup is bounded to 60 seconds for this client, so the
+         * same request a minute later is a new generation — see
+         * contentIdempotencyKey for why the bound lives there and not in the
+         * key. (An earlier version of this comment said the server's lookup had
+         * no time bound of its own; it has one.)
          *
          * `form` is the right thing to hash rather than args.input: it is what
          * actually goes on the wire, after toWire has resolved reuse

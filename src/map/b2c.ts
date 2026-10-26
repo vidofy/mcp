@@ -30,8 +30,14 @@
  *    two apart.
  */
 
-/** Field names that carry Vidofy's own cost. None may ever be returned. */
-const PROVIDER_COST_KEYS = new Set(['m_api_cost', 'aul_api_cost', 'total_api_cost', 'api_cost']);
+/** Field names that carry Vidofy's own cost — and `m_output_url`, the upstream
+ *  provider's own link to the output file. None may ever be returned.
+ *
+ *  `m_output_url` names the provider, and for a private generation it is a copy
+ *  outside Vidofy's signed links; `output_public_url` is the file to hand over.
+ *  Newer servers stop sending it to anyone but an admin; stripping it here
+ *  covers a server that still does. */
+const PROVIDER_COST_KEYS = new Set(['m_api_cost', 'aul_api_cost', 'total_api_cost', 'api_cost', 'm_output_url']);
 
 /**
  * Remove every provider-cost field, at any depth.
@@ -254,10 +260,14 @@ export function mapResult(payload: unknown): GenerationResult {
        null, which is the whole difference the reader notices. */
     const { estimated_seconds: _estimateBelongsToStatusOnly, ...base } = mapStatus(payload);
 
-    const url =
-        str(result['output_public_url']) ??
-        str(result['m_output_url']) ??
-        null;
+    /* No fallback to `m_output_url`: that is the upstream provider's own link,
+     * not Vidofy's (see PROVIDER_COST_KEYS). When `output_public_url` is absent
+     * the honest answer is no URL, not a provider copy the user may not be
+     * entitled to.
+     *
+     *   str(result['output_public_url']) ?? str(result['m_output_url']) ?? null
+     */
+    const url = str(result['output_public_url']) ?? null;
 
     return {
         ...base,

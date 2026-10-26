@@ -341,8 +341,8 @@ body{font-family:var(--font-sans);color:var(--color-text-primary);font-size:13px
      *
      * And no signed url is stored either — owner decision, option (أ), 2026-09-16.
      * Storing one with its expiry alongside would buy a subscriber an instant
-     * picture for eight hours, at the price of leaving a url carrying
-     * X-Amz-Credential — the R2 access key id — sitting in the viewer's storage
+     * picture for eight hours, at the price of leaving a signed url — with the
+     * signing details in its query string — sitting in the viewer's storage
      * after it has stopped working. The facts are cached for them regardless, so
      * their card still opens filled in; only the picture waits for one trip.
      *
@@ -915,8 +915,7 @@ body{font-family:var(--font-sans);color:var(--color-text-primary);font-size:13px
      * Allowed by the card's own CSP: _meta.ui.csp.resourceDomains maps to
      * media-src as well as img-src (MCP Apps spec, apps.mdx), and the output
      * and its poster come from the SAME host — measured — and that host is
-     * matched by the declared https://*.r2.cloudflarestorage.com. The poster
-     * already renders from it,
+     * one of the declared resourceDomains. The poster already renders from it,
      * which is the proof the origin passes.
      *
      * play() is called inside the click handler, never outside one: a gesture
